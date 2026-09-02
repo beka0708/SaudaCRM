@@ -18,8 +18,17 @@ class CustomUserAdmin(BaseUserAdmin, ModelAdmin):
     add_form = UserCreationForm
     change_password_form = AdminPasswordChangeForm
 
-    # Добавляем наши поля (telegram_id, phone) в форму редактирования.
+    # Добавляем наши поля в форму редактирования.
     fieldsets = BaseUserAdmin.fieldsets + (
-        ("Telegram / контакты", {"fields": ("telegram_id", "phone")}),
+        (
+            "Telegram / контакты",
+            {"fields": ("telegram_id", "phone", "receives_notifications")},
+        ),
     )
-    list_display = ("username", "get_full_name", "telegram_id", "is_staff")
+    list_display = (
+        "username",
+        "get_full_name",
+        "telegram_id",
+        "receives_notifications",
+        "is_staff",
+    )

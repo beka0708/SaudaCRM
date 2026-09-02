@@ -1,0 +1,148 @@
+{% extends 'admin/base.html' %}
+{% load i18n %}
+
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block branding %}
+    {% include "unfold/helpers/site_branding.html" %}
+{% endblock %}
+
+{% block content %}
+<style>
+  .sd-grid { display: grid; gap: 1rem; }
+  .sd-wrap { margin-bottom: 1.5rem; }
+  .sd-kpis { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+  .sd-charts { grid-template-columns: 2fr 1fr; }
+  .sd-tables { grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); }
+  .sd-card {
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 14px;
+    padding: 18px 20px; box-shadow: 0 1px 2px rgba(0,0,0,.05);
+  }
+  .dark .sd-card { background: rgb(var(--color-base-900)); border-color: rgb(var(--color-base-800)); }
+  .sd-kpi-top { display: flex; align-items: center; justify-content: space-between; }
+  .sd-kpi-icon { font-size: 20px; }
+  .sd-kpi-label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+  .dark .sd-kpi-label { color: #9ca3af; }
+  .sd-kpi-value { font-size: 26px; font-weight: 800; margin-top: 8px; line-height: 1.1; letter-spacing: -.02em; }
+  .sd-kpi-sub { font-size: 12px; color: #9ca3af; margin-top: 4px; display: flex; align-items: center; gap: 8px; }
+  .sd-green { color: #10b981; } .sd-red { color: #ef4444; }
+  .sd-blue { color: #3b82f6; } .sd-amber { color: #f59e0b; }
+  .sd-trend { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .sd-trend.up { color: #059669; background: #d1fae5; }
+  .sd-trend.down { color: #dc2626; background: #fee2e2; }
+  .dark .sd-trend.up { background: rgba(5,150,105,.18); } .dark .sd-trend.down { background: rgba(220,38,38,.18); }
+  .sd-title { font-size: 13px; font-weight: 700; color: #374151; margin: 0 0 12px; }
+  .dark .sd-title { color: #e5e7eb; }
+  .sd-chart-box { position: relative; height: 280px; }
+  .sd-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .sd-table td { padding: 7px 0; border-top: 1px solid #f3f4f6; vertical-align: middle; }
+  .dark .sd-table td { border-color: rgb(var(--color-base-800)); }
+  .sd-table tr:first-child td { border-top: 0; }
+  .sd-num { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sd-muted { color: #9ca3af; font-size: 12px; }
+  .sd-empty { color: #9ca3af; font-size: 13px; padding: 10px 0; }
+  @media (max-width: 900px) { .sd-charts { grid-template-columns: 1fr; } }
+</style>
+
+<div class="sd-dashboard">
+  <h1 style="font-size:20px;font-weight:800;margin:0 0 1rem;">📊 Дашборд</h1>
+
+  {# ---------- KPI ---------- #}
+  <div class="sd-grid sd-kpis sd-wrap">
+    {% for k in dash_kpis %}
+      <div class="sd-card">
+        <div class="sd-kpi-top">
+          <span class="sd-kpi-label">{{ k.label }}</span>
+          <span class="sd-kpi-icon">{{ k.icon }}</span>
+        </div>
+        <div class="sd-kpi-value sd-{{ k.accent }}">{{ k.value }}</div>
+        <div class="sd-kpi-sub">
+          <span>{{ k.sub }}</span>
+          {% if k.trend %}
+            <span class="sd-trend {% if k.trend.up %}up{% else %}down{% endif %}">
+              {% if k.trend.up %}▲{% else %}▼{% endif %} {{ k.trend.pct }}%
+            </span>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+
+  {# ---------- Графики ---------- #}
+  <div class="sd-grid sd-charts sd-wrap">
+    <div class="sd-card">
+      <div class="sd-title">📈 Выручка по дням (30 дней)</div>
+      <div class="sd-chart-box">
+        <canvas class="chart" data-type="bar" data-value="{{ dash_revenue_json }}"></canvas>
+      </div>
+    </div>
+    <div class="sd-card">
+      <div class="sd-title">🥧 Оплаты за месяц</div>
+      {% if dash_payment_has_data %}
+        <div class="sd-chart-box">
+          <canvas class="chart" data-type="doughnut" data-value="{{ dash_payment_json }}"></canvas>
+        </div>
+      {% else %}
+        <div class="sd-empty">Нет продаж за месяц.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ---------- Аналитические таблицы ---------- #}
+  <div class="sd-grid sd-tables sd-wrap">
+    <div class="sd-card">
+      <div class="sd-title">🏆 ТОП товаров (за месяц)</div>
+      <table class="sd-table">
+        {% for r in dash_top_products %}
+          <tr><td>{{ r.name }}<div class="sd-muted">{{ r.qty }} шт</div></td><td class="sd-num sd-green">{{ r.revenue }}</td></tr>
+        {% empty %}<tr><td class="sd-empty">Нет продаж за месяц.</td></tr>{% endfor %}
+      </table>
+    </div>
+
+    <div class="sd-card">
+      <div class="sd-title">💹 Маржинальность (за месяц)</div>
+      <table class="sd-table">
+        {% for r in dash_margin %}
+          <tr><td>{{ r.name }}<div class="sd-muted">маржа {{ r.pct }}%</div></td><td class="sd-num sd-green">{{ r.profit }}</td></tr>
+        {% empty %}<tr><td class="sd-empty">Нет данных.</td></tr>{% endfor %}
+      </table>
+    </div>
+
+    <div class="sd-card">
+      <div class="sd-title">⚠️ На пополнение</div>
+      <table class="sd-table">
+        {% for r in dash_low_stock %}
+          <tr><td>{{ r.name }}<div class="sd-muted">порог {{ r.threshold }}</div></td><td class="sd-num sd-red">{{ r.stock_label }}</td></tr>
+        {% empty %}<tr><td class="sd-empty">Все остатки в норме 👍</td></tr>{% endfor %}
+      </table>
+    </div>
+
+    <div class="sd-card">
+      <div class="sd-title">🧍 ТОП должников</div>
+      <table class="sd-table">
+        {% for r in dash_debtors %}
+          <tr><td>{{ r.name }}</td><td class="sd-num sd-amber">{{ r.debt }}</td></tr>
+        {% empty %}<tr><td class="sd-empty">Нет должников 🎉</td></tr>{% endfor %}
+      </table>
+    </div>
+
+    <div class="sd-card">
+      <div class="sd-title">⏳ Прогноз запаса</div>
+      <table class="sd-table">
+        {% for r in dash_forecast %}
+          <tr><td>{{ r.name }}<div class="sd-muted">остаток {{ r.stock }}</div></td><td class="sd-num">{% if r.days_left != None %}{{ r.days_left }} дн{% else %}—{% endif %}</td></tr>
+        {% empty %}<tr><td class="sd-empty">Недостаточно данных о продажах.</td></tr>{% endfor %}
+      </table>
+    </div>
+  </div>
+</div>
+
+{# ---------- Стандартная навигация Unfold по приложениям ---------- #}
+<div class="flex flex-col lg:flex-row lg:gap-8">
+    <div class="grow">
+        {% include "unfold/helpers/app_list_default.html" %}
+    </div>
+
+    {% include "unfold/helpers/history.html" %}
+</div>
+{% endblock %}

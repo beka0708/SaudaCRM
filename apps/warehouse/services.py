@@ -38,10 +38,32 @@ def receive_stock(product, base_quantity, comment="") -> StockMovement:
 
 
 def write_off_stock(product, base_quantity, comment="") -> StockMovement:
-    """Списание (продажа): уменьшить остаток (отрицательное движение)."""
-    return record_movement(
-        product, -abs(_dec(base_quantity)), StockMovement.Type.SALE, comment
-    )
+    """Списание (продажа): уменьшить остаток (отрицательное движение).
+
+    Если списание уронило остаток НИЖЕ порога (пересекло его сверху вниз) —
+    планируем уведомление о низком остатке после коммита транзакции.
+    """
+    qty = abs(_dec(base_quantity))
+    before = get_stock(product)
+    movement = record_movement(product, -qty, StockMovement.Type.SALE, comment)
+    _maybe_notify_low_stock(product, before, before - qty)
+    return movement
+
+
+def crossed_below_threshold(before, after, threshold) -> bool:
+    """Остаток пересёк порог сверху вниз (чтобы не слать уведомление повторно)."""
+    return bool(threshold) and before >= threshold and after < threshold
+
+
+def _maybe_notify_low_stock(product, before, after):
+    if not crossed_below_threshold(before, after, product.low_stock_threshold):
+        return
+    from django.db import transaction
+
+    from apps.core.notifications import notify_low_stock
+
+    # Шлём ПОСЛЕ коммита: если продажа откатится — уведомление не уйдёт.
+    transaction.on_commit(lambda: notify_low_stock(product))
 
 
 def adjust_stock(product, delta, comment="") -> StockMovement:

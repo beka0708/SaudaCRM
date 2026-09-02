@@ -141,6 +141,7 @@ UNFOLD = {
     "SITE_TITLE": "SaudaCRM",
     "SITE_HEADER": "SaudaCRM",
     "SITE_SUBHEADER": "Финансовый учёт и продажи",
+    "DASHBOARD_CALLBACK": "apps.analytics.dashboard.dashboard_callback",
     "SITE_DROPDOWN": [],
     "SHOW_HISTORY": True,
     "SHOW_VIEW_ON_SITE": False,
