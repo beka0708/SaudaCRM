@@ -1,0 +1,63 @@
+{% extends "unfold/layouts/base_simple.html" %}
+{% load i18n unfold %}
+
+{% block title %}Аналитика | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block content %}
+<style>
+  /* auto-fit minmax = адаптивно: 1 колонка на узких, 2 на средних, до 3 на широких */
+  .an-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); margin-bottom: 1rem; }
+  .sd-link { color: inherit; text-decoration: none; } .sd-link:hover { text-decoration: underline; }
+  .sd-mb { display: flex; align-items: center; gap: 10px; }
+  .sd-mb-track { flex: 1; height: 6px; background: #f3f4f6; border-radius: 999px; overflow: hidden; min-width: 60px; }
+  .dark .sd-mb-track { background: rgb(var(--color-base-800)); }
+  .sd-mb-fill { display: block; height: 100%; border-radius: 999px; }
+  .progress-bar-fill { transition: width 700ms cubic-bezier(0.4, 0, 0.2, 1); }
+  .sd-mb-val { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 78px; text-align: right; }
+  /* заметное чередование строк */
+  .an-grid table tbody:nth-of-type(even) .data-row { background: #f9fafb; }
+  .dark .an-grid table tbody:nth-of-type(even) .data-row { background: rgba(255,255,255,.03); }
+  .an-filter { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; margin-bottom: 18px;
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px 18px; }
+  .dark .an-filter { background: rgb(var(--color-base-900)); border-color: rgb(var(--color-base-800)); }
+  .an-filter label { display: block; font-size: 11px; color: #6b7280; margin-bottom: 4px; }
+  .dark .an-filter label { color: #9ca3af; }
+  .an-filter input { border: 1px solid #d1d5db; border-radius: 8px; padding: 7px 10px; font-size: 14px; background: #fff; }
+  .dark .an-filter input { background: rgb(var(--color-base-800)); border-color: rgb(var(--color-base-700)); color: #e5e7eb; }
+  .an-btn { background: #10b981; color: #fff; border: 0; border-radius: 8px; padding: 8px 16px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .an-btn:hover { background: #059669; }
+  .an-note { font-size: 12px; color: #94a3b8; margin-left: auto; align-self: center; }
+</style>
+
+<h1 class="text-xl font-semibold text-important mb-4">Аналитика</h1>
+
+<form method="get" action="{% url 'analytics' %}" class="an-filter">
+  <div><label for="start">Период с</label><input type="date" id="start" name="start" value="{{ an_start }}"></div>
+  <div><label for="end">по</label><input type="date" id="end" name="end" value="{{ an_end }}"></div>
+  <button type="submit" class="an-btn">Применить</button>
+  <span class="an-note">Показан период: {{ an_period_label }}. «Сравнение месяцев» и «ТОП должников» — не зависят от периода.</span>
+</form>
+
+<div class="an-grid">
+  {% component "unfold/components/table.html" with table=comparison_table title=comparison_title striped=1 %}{% endcomponent %}
+  {% component "unfold/components/table.html" with table=margin_table title=margin_title striped=1 %}{% endcomponent %}
+  {% component "unfold/components/table.html" with table=forecast_table title=forecast_title striped=1 %}{% endcomponent %}
+  {% component "unfold/components/table.html" with table=slow_table title=slow_title striped=1 %}{% endcomponent %}
+  {% component "unfold/components/table.html" with table=debtors_table title=debtors_title striped=1 %}{% endcomponent %}
+  {% component "unfold/components/table.html" with table=buyers_table title=buyers_title striped=1 %}{% endcomponent %}
+</div>
+
+<script>
+(function () {
+  function initBars() {
+    var fills = document.querySelectorAll(".progress-bar-fill");
+    if (!("IntersectionObserver" in window)) { fills.forEach(function (el) { el.style.width = el.dataset.width + "%"; }); return; }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { if (en.isIntersecting) { en.target.style.width = en.target.dataset.width + "%"; io.unobserve(en.target); } });
+    }, { threshold: 0.1 });
+    fills.forEach(function (el) { io.observe(el); });
+  }
+  window.addEventListener("load", initBars);
+})();
+</script>
+{% endblock %}

@@ -48,3 +48,18 @@ class ProductAdmin(ModelAdmin):
     @admin.display(description="Маржа/ед.")
     def margin_display(self, obj):
         return obj.margin
+
+    @admin.action(description="Экспорт остатков в Excel")
+    def export_xlsx(self, request, queryset):
+        from apps.reports.services import single_sheet_response
+
+        rows = [
+            [p.name, p.base_unit, float(p._stock or 0), float(p.cost_price),
+             float((p._stock or 0) * p.cost_price)]
+            for p in queryset
+        ]
+        return single_sheet_response(
+            "stock.xlsx", "Остатки",
+            ["Товар", "Ед.", "Остаток", "Себестоимость", "Стоимость"], rows, money_cols=(4, 5))
+
+    actions = ["export_xlsx"]

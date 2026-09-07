@@ -43,3 +43,17 @@ class SaleAdmin(ModelAdmin):
         super().save_related(request, form, formsets, change)
         # Позиции уже сохранены (base_quantity посчитан) — проводим продажу.
         process_sale(form.instance)
+
+    @admin.action(description="Экспорт в Excel")
+    def export_xlsx(self, request, queryset):
+        from apps.reports.services import single_sheet_response
+
+        rows = [
+            [s.created_at.strftime("%d.%m.%Y"), str(s.client) if s.client else "—",
+             s.get_payment_type_display(), float(s.total)]
+            for s in queryset.select_related("client")
+        ]
+        return single_sheet_response(
+            "sales.xlsx", "Продажи", ["Дата", "Клиент", "Тип оплаты", "Сумма"], rows, money_cols=(4,))
+
+    actions = ["export_xlsx"]

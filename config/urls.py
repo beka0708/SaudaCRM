@@ -17,6 +17,12 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
+from apps.analytics.views import analytics_view
+from apps.reports.views import reports_view
+
 urlpatterns = [
+    # Кастомные страницы — ДО admin.site.urls, чтобы перехватить путь.
+    path('admin/analytics/', analytics_view, name='analytics'),
+    path('admin/reports/', reports_view, name='reports'),
     path('admin/', admin.site.urls),
 ]

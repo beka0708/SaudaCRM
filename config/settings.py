@@ -1,5 +1,7 @@
 from pathlib import Path
+
 from decouple import config
+from django.urls import reverse_lazy
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config("SECRET_KEY")
@@ -143,6 +145,43 @@ UNFOLD = {
     "SITE_SUBHEADER": "Финансовый учёт и продажи",
     "DASHBOARD_CALLBACK": "apps.analytics.dashboard.dashboard_callback",
     "SITE_DROPDOWN": [],
+    "SIDEBAR": {
+        "show_search": False,
+        "navigation": [
+            {
+                "title": "Обзор",
+                "items": [
+                    {"title": "Дашборд", "icon": "dashboard", "link": reverse_lazy("admin:index")},
+                    {"title": "Аналитика", "icon": "insights", "link": reverse_lazy("analytics")},
+                    {"title": "Отчёты", "icon": "description", "link": reverse_lazy("reports")},
+                ],
+            },
+            {
+                "title": "Продажи и склад",
+                "items": [
+                    {"title": "Продажи", "icon": "receipt_long", "link": reverse_lazy("admin:sales_sale_changelist")},
+                    {"title": "Товары", "icon": "inventory_2", "link": reverse_lazy("admin:catalog_product_changelist")},
+                    {"title": "Приходы партий", "icon": "move_to_inbox", "link": reverse_lazy("admin:warehouse_receipt_changelist")},
+                    {"title": "Складские движения", "icon": "swap_vert", "link": reverse_lazy("admin:warehouse_stockmovement_changelist")},
+                ],
+            },
+            {
+                "title": "Клиенты и деньги",
+                "items": [
+                    {"title": "Клиенты", "icon": "groups", "link": reverse_lazy("admin:clients_client_changelist")},
+                    {"title": "Реализация (долги)", "icon": "account_balance_wallet", "link": reverse_lazy("admin:debts_debt_changelist")},
+                    {"title": "Оплаты долгов", "icon": "payments", "link": reverse_lazy("admin:debts_debtpayment_changelist")},
+                    {"title": "Касса", "icon": "account_balance", "link": reverse_lazy("admin:finance_cashflow_changelist")},
+                ],
+            },
+            {
+                "title": "Система",
+                "items": [
+                    {"title": "Пользователи", "icon": "person", "link": reverse_lazy("admin:users_user_changelist")},
+                ],
+            },
+        ],
+    },
     "SHOW_HISTORY": True,
     "SHOW_VIEW_ON_SITE": False,
     "COLORS": {

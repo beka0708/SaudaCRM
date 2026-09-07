@@ -236,3 +236,5 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+questions_atay.txt
+CLAUDE_CODE_PROMPT.md

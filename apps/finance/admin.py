@@ -23,3 +23,18 @@ class CashFlowAdmin(ModelAdmin):
             color,
             obj.get_direction_display(),
         )
+
+    @admin.action(description="Экспорт в Excel")
+    def export_xlsx(self, request, queryset):
+        from apps.reports.services import single_sheet_response
+
+        rows = [
+            [c.date.strftime("%d.%m.%Y"), c.get_direction_display(),
+             c.get_category_display(), float(c.amount), c.comment]
+            for c in queryset
+        ]
+        return single_sheet_response(
+            "cashflow.xlsx", "Касса",
+            ["Дата", "Тип", "Категория", "Сумма", "Комментарий"], rows, money_cols=(4,))
+
+    actions = ["export_xlsx"]

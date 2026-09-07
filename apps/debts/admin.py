@@ -28,6 +28,21 @@ class DebtAdmin(ModelAdmin):
     def remaining_display(self, obj):
         return obj.remaining
 
+    @admin.action(description="Экспорт в Excel")
+    def export_xlsx(self, request, queryset):
+        from apps.reports.services import single_sheet_response
+
+        rows = [
+            [str(d.client), float(d.amount), float(d.paid), float(d.remaining),
+             d.created_at.strftime("%d.%m.%Y")]
+            for d in queryset.select_related("client")
+        ]
+        return single_sheet_response(
+            "debts.xlsx", "Долги",
+            ["Клиент", "Сумма долга", "Оплачено", "Остаток", "Дата"], rows, money_cols=(2, 3, 4))
+
+    actions = ["export_xlsx"]
+
 
 @admin.register(DebtPayment)
 class DebtPaymentAdmin(ModelAdmin):

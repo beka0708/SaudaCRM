@@ -1,5 +1,5 @@
 {% extends 'admin/base.html' %}
-{% load i18n %}
+{% load i18n unfold %}
 
 {% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
 
@@ -10,139 +10,181 @@
 {% block content %}
 <style>
   .sd-grid { display: grid; gap: 1rem; }
-  .sd-wrap { margin-bottom: 1.5rem; }
-  .sd-kpis { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+  .sd-wrap { margin-bottom: 1.25rem; }
+  .sd-kpis { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
   .sd-charts { grid-template-columns: 2fr 1fr; }
-  .sd-tables { grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); }
-  .sd-card {
-    background: #fff; border: 1px solid #e5e7eb; border-radius: 14px;
-    padding: 18px 20px; box-shadow: 0 1px 2px rgba(0,0,0,.05);
-  }
-  .dark .sd-card { background: rgb(var(--color-base-900)); border-color: rgb(var(--color-base-800)); }
-  .sd-kpi-top { display: flex; align-items: center; justify-content: space-between; }
-  .sd-kpi-icon { font-size: 20px; }
   .sd-kpi-label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
   .dark .sd-kpi-label { color: #9ca3af; }
-  .sd-kpi-value { font-size: 26px; font-weight: 800; margin-top: 8px; line-height: 1.1; letter-spacing: -.02em; }
-  .sd-kpi-sub { font-size: 12px; color: #9ca3af; margin-top: 4px; display: flex; align-items: center; gap: 8px; }
-  .sd-green { color: #10b981; } .sd-red { color: #ef4444; }
-  .sd-blue { color: #3b82f6; } .sd-amber { color: #f59e0b; }
-  .sd-trend { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
-  .sd-trend.up { color: #059669; background: #d1fae5; }
-  .sd-trend.down { color: #dc2626; background: #fee2e2; }
+  .sd-kpi-value { font-size: 26px; font-weight: 800; margin-top: 6px; line-height: 1.1; letter-spacing: -.02em; }
+  .sd-unit { font-size: 13px; font-weight: 600; color: #94a3b8; margin-left: 3px; }
+  .sd-kpi-sub { font-size: 12px; color: #94a3b8; margin-top: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .sd-blue { color: #3b82f6; } .sd-sky { color: #0ea5e9; } .sd-amber { color: #f59e0b; } .sd-red { color: #ef4444; }
+  .sd-slate { color: #1e293b; } .dark .sd-slate { color: #e5e7eb; }
+  .sd-icon-blue { color: #3b82f6 !important; } .sd-icon-sky { color: #0ea5e9 !important; }
+  .sd-icon-indigo { color: #6366f1 !important; } .sd-icon-emerald { color: #10b981 !important; }
+  .sd-icon-amber { color: #f59e0b !important; } .sd-icon-red { color: #ef4444 !important; }
+  /* -600 варианты (сочнее для синего/голубого/янтарного) */
+  .sd-icon-blue6 { color: #2563eb !important; } .sd-icon-sky6 { color: #0284c7 !important; }
+  .sd-icon-amber6 { color: #d97706 !important; }
+  .sd-icon-shift { left: -0.75rem !important; }
+  .sd-trend { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; white-space: nowrap; }
+  .sd-trend.up { color: #059669; background: #d1fae5; } .sd-trend.down { color: #dc2626; background: #fee2e2; }
   .dark .sd-trend.up { background: rgba(5,150,105,.18); } .dark .sd-trend.down { background: rgba(220,38,38,.18); }
-  .sd-title { font-size: 13px; font-weight: 700; color: #374151; margin: 0 0 12px; }
-  .dark .sd-title { color: #e5e7eb; }
-  .sd-chart-box { position: relative; height: 280px; }
-  .sd-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .sd-table td { padding: 7px 0; border-top: 1px solid #f3f4f6; vertical-align: middle; }
-  .dark .sd-table td { border-color: rgb(var(--color-base-800)); }
-  .sd-table tr:first-child td { border-top: 0; }
-  .sd-num { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .sd-muted { color: #9ca3af; font-size: 12px; }
-  .sd-empty { color: #9ca3af; font-size: 13px; padding: 10px 0; }
+  .sd-cardlift { transition: transform .15s ease, box-shadow .15s ease; }
+  .sd-cardlift:hover { transform: translateY(-2px); }
+  .sd-cardhead { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .sd-hicon { font-size: 22px; }
+  .sd-htitle { font-weight: 700; font-size: 14px; color: #374151; line-height: 1.15; } .dark .sd-htitle { color: #e5e7eb; }
+  .sd-hsub { font-size: 11px; color: #9ca3af; margin-top: 1px; }
+  .sd-bar-green { background-color: #10b981 !important; } .sd-bar-amber { background-color: #f59e0b !important; }
+  .sd-legend { display: flex; gap: 18px; margin-top: 14px; font-size: 13px; flex-wrap: wrap; }
+  .sd-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+  .sd-track { margin-top: 16px; }
+  .sd-track-0 { background: #e5e7eb; } .dark .sd-track-0 { background: rgb(var(--color-base-800)); }
+  .sd-track-1 { background: #a7f3d0; } .sd-track-2 { background: #6ee7b7; }
+  .sd-track-3 { background: #34d399; } .sd-track-4 { background: #10b981; }
+  .sd-hint { font-size: 11px; color: #9ca3af; margin-top: 6px; }
+  .sd-chartbox { height: 280px; position: relative; }
+  .sd-paybar { height: 280px; position: relative; }
+  .sd-mb { display: flex; align-items: center; gap: 10px; }
+  .sd-mb-track { flex: 1; height: 6px; background: #f3f4f6; border-radius: 999px; overflow: hidden; min-width: 60px; }
+  .dark .sd-mb-track { background: rgb(var(--color-base-800)); }
+  .sd-mb-fill { display: block; height: 100%; border-radius: 999px; }
+  .progress-bar-fill { transition: width 700ms cubic-bezier(0.4, 0, 0.2, 1); }
+  .sd-mb-val { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 78px; text-align: right; }
+  .sd-link { color: inherit; text-decoration: none; } .sd-link:hover { text-decoration: underline; }
+  .sd-titleicon { font-size: 18px; vertical-align: -4px; margin-right: 6px; }
+  .sd-toptable table tbody:nth-of-type(even) .data-row { background: #f9fafb; }
+  .dark .sd-toptable table tbody:nth-of-type(even) .data-row { background: rgba(255,255,255,.03); }
   @media (max-width: 900px) { .sd-charts { grid-template-columns: 1fr; } }
 </style>
 
-<div class="sd-dashboard">
-  <h1 style="font-size:20px;font-weight:800;margin:0 0 1rem;">📊 Дашборд</h1>
+<h1 class="text-xl font-semibold text-important mb-4">Дашборд</h1>
 
-  {# ---------- KPI ---------- #}
-  <div class="sd-grid sd-kpis sd-wrap">
-    {% for k in dash_kpis %}
-      <div class="sd-card">
-        <div class="sd-kpi-top">
-          <span class="sd-kpi-label">{{ k.label }}</span>
-          <span class="sd-kpi-icon">{{ k.icon }}</span>
-        </div>
-        <div class="sd-kpi-value sd-{{ k.accent }}">{{ k.value }}</div>
-        <div class="sd-kpi-sub">
-          <span>{{ k.sub }}</span>
-          {% if k.trend %}
-            <span class="sd-trend {% if k.trend.up %}up{% else %}down{% endif %}">
-              {% if k.trend.up %}▲{% else %}▼{% endif %} {{ k.trend.pct }}%
-            </span>
-          {% endif %}
-        </div>
+{# ---------- KPI ---------- #}
+<div class="sd-grid sd-kpis sd-wrap">
+  {% for k in dash_kpis %}
+    {% component "unfold/components/card.html" with icon=k.icon icon_class=k.icon_class href=k.href class="sd-cardlift" %}
+      <div class="sd-kpi-label">{{ k.label }}</div>
+      <div class="sd-kpi-value {{ k.value_class }}"><span class="kpi-value" data-target="{{ k.target }}">{{ k.value }}</span>{% if k.unit %}<span class="sd-unit">{{ k.unit }}</span>{% endif %}</div>
+      <div class="sd-kpi-sub">
+        <span>{{ k.sub }}</span>
+        {% if k.trend %}
+          <span class="sd-trend {% if k.trend.up %}up{% else %}down{% endif %}">{% if k.trend.up %}↑{% else %}↓{% endif %} {{ k.trend.pct }}%</span>
+        {% endif %}
       </div>
-    {% endfor %}
-  </div>
-
-  {# ---------- Графики ---------- #}
-  <div class="sd-grid sd-charts sd-wrap">
-    <div class="sd-card">
-      <div class="sd-title">📈 Выручка по дням (30 дней)</div>
-      <div class="sd-chart-box">
-        <canvas class="chart" data-type="bar" data-value="{{ dash_revenue_json }}"></canvas>
-      </div>
-    </div>
-    <div class="sd-card">
-      <div class="sd-title">🥧 Оплаты за месяц</div>
-      {% if dash_payment_has_data %}
-        <div class="sd-chart-box">
-          <canvas class="chart" data-type="doughnut" data-value="{{ dash_payment_json }}"></canvas>
-        </div>
-      {% else %}
-        <div class="sd-empty">Нет продаж за месяц.</div>
-      {% endif %}
-    </div>
-  </div>
-
-  {# ---------- Аналитические таблицы ---------- #}
-  <div class="sd-grid sd-tables sd-wrap">
-    <div class="sd-card">
-      <div class="sd-title">🏆 ТОП товаров (за месяц)</div>
-      <table class="sd-table">
-        {% for r in dash_top_products %}
-          <tr><td>{{ r.name }}<div class="sd-muted">{{ r.qty }} шт</div></td><td class="sd-num sd-green">{{ r.revenue }}</td></tr>
-        {% empty %}<tr><td class="sd-empty">Нет продаж за месяц.</td></tr>{% endfor %}
-      </table>
-    </div>
-
-    <div class="sd-card">
-      <div class="sd-title">💹 Маржинальность (за месяц)</div>
-      <table class="sd-table">
-        {% for r in dash_margin %}
-          <tr><td>{{ r.name }}<div class="sd-muted">маржа {{ r.pct }}%</div></td><td class="sd-num sd-green">{{ r.profit }}</td></tr>
-        {% empty %}<tr><td class="sd-empty">Нет данных.</td></tr>{% endfor %}
-      </table>
-    </div>
-
-    <div class="sd-card">
-      <div class="sd-title">⚠️ На пополнение</div>
-      <table class="sd-table">
-        {% for r in dash_low_stock %}
-          <tr><td>{{ r.name }}<div class="sd-muted">порог {{ r.threshold }}</div></td><td class="sd-num sd-red">{{ r.stock_label }}</td></tr>
-        {% empty %}<tr><td class="sd-empty">Все остатки в норме 👍</td></tr>{% endfor %}
-      </table>
-    </div>
-
-    <div class="sd-card">
-      <div class="sd-title">🧍 ТОП должников</div>
-      <table class="sd-table">
-        {% for r in dash_debtors %}
-          <tr><td>{{ r.name }}</td><td class="sd-num sd-amber">{{ r.debt }}</td></tr>
-        {% empty %}<tr><td class="sd-empty">Нет должников 🎉</td></tr>{% endfor %}
-      </table>
-    </div>
-
-    <div class="sd-card">
-      <div class="sd-title">⏳ Прогноз запаса</div>
-      <table class="sd-table">
-        {% for r in dash_forecast %}
-          <tr><td>{{ r.name }}<div class="sd-muted">остаток {{ r.stock }}</div></td><td class="sd-num">{% if r.days_left != None %}{{ r.days_left }} дн{% else %}—{% endif %}</td></tr>
-        {% empty %}<tr><td class="sd-empty">Недостаточно данных о продажах.</td></tr>{% endfor %}
-      </table>
-    </div>
-  </div>
+    {% endcomponent %}
+  {% endfor %}
 </div>
 
-{# ---------- Стандартная навигация Unfold по приложениям ---------- #}
-<div class="flex flex-col lg:flex-row lg:gap-8">
-    <div class="grow">
-        {% include "unfold/helpers/app_list_default.html" %}
+{# ---------- Графики ---------- #}
+<div class="sd-grid sd-charts sd-wrap">
+  {% component "unfold/components/card.html" %}
+    <div class="sd-cardhead">
+      <span class="material-symbols-outlined sd-hicon sd-icon-green" style="color:#10b981">trending_up</span>
+      <div><div class="sd-htitle">Выручка по дням</div><div class="sd-hsub">за 30 дней</div></div>
     </div>
+    <div class="sd-chartbox"><canvas id="sd-revenue-chart" data-value="{{ dash_revenue_data }}"></canvas></div>
+    <div class="sd-track">
+      {% component "unfold/components/tracker.html" with data=dash_tracker size="sm" %}{% endcomponent %}
+      <div class="sd-hint">Интенсивность продаж по дням</div>
+    </div>
+  {% endcomponent %}
 
-    {% include "unfold/helpers/history.html" %}
+  {% component "unfold/components/card.html" %}
+    <div class="sd-cardhead">
+      <span class="material-symbols-outlined sd-hicon sd-icon-amber">account_balance_wallet</span>
+      <div><div class="sd-htitle">Оплаты</div><div class="sd-hsub">за 30 дней</div></div>
+    </div>
+    {% if dash_payment_has_data %}
+      <div class="sd-paybar"><canvas id="sd-payment-chart" data-value="{{ dash_payment_data }}"></canvas></div>
+      <div class="sd-legend">
+        <span><i class="sd-dot sd-bar-green"></i>Наличные — {{ dash_payment_cash }} сом</span>
+        <span><i class="sd-dot" style="background:#f97316"></i>Реализация — {{ dash_payment_debt }} сом</span>
+      </div>
+    {% else %}
+      <div class="sd-hint">Нет продаж за 30 дней.</div>
+    {% endif %}
+  {% endcomponent %}
 </div>
+
+{# ---------- ТОП-5 товаров ---------- #}
+<div class="sd-wrap sd-toptable">
+  {% if dash_top_has_data %}
+    {% component "unfold/components/table.html" with table=dash_top_table title=dash_top_title striped=1 %}{% endcomponent %}
+  {% else %}
+    {% component "unfold/components/card.html" %}
+      <div class="sd-cardhead"><span class="material-symbols-outlined sd-hicon sd-icon-amber">workspace_premium</span><div class="sd-htitle">ТОП-5 товаров за 30 дней</div></div>
+      <div class="sd-hint">Нет продаж за 30 дней.</div>
+    {% endcomponent %}
+  {% endif %}
+</div>
+
+<script>
+(function () {
+  function initCharts() {
+    if (typeof Chart === "undefined") return;
+    var rc = document.getElementById("sd-revenue-chart");
+    if (rc && !rc.dataset.done) {
+      rc.dataset.done = "1";
+      var d = JSON.parse(rc.dataset.value);
+      new Chart(rc, {
+        type: "line",
+        data: { labels: d.labels, datasets: [{
+          label: "Выручка", data: d.values, borderColor: "#10b981", borderWidth: 2,
+          tension: 0.35, pointRadius: 0, fill: true,
+          backgroundColor: function (ctx) { var c = ctx.chart.ctx, g = c.createLinearGradient(0, 0, 0, 260);
+            g.addColorStop(0, "rgba(16,185,129,0.35)"); g.addColorStop(1, "rgba(16,185,129,0.02)"); return g; }
+        }] },
+        options: { responsive: true, maintainAspectRatio: false,
+          animation: { duration: 900, easing: "easeOutQuart" },
+          plugins: { legend: { display: false } },
+          scales: { x: { grid: { display: false }, ticks: { color: "#9ca3af", maxTicksLimit: 8 } },
+                    y: { beginAtZero: true, grid: { color: "rgba(148,163,184,0.15)" }, ticks: { color: "#9ca3af" } } } }
+      });
+    }
+    var pc = document.getElementById("sd-payment-chart");
+    if (pc && !pc.dataset.done) {
+      pc.dataset.done = "1";
+      var p = JSON.parse(pc.dataset.value);
+      var total = p.cash + p.debt;
+      new Chart(pc, {
+        type: "doughnut",
+        data: { labels: ["Наличные", "Реализация"], datasets: [{
+          data: [p.cash, p.debt], backgroundColor: ["#10b981", "#f97316"],
+          borderWidth: 0, hoverOffset: 6
+        }] },
+        options: { responsive: true, maintainAspectRatio: false, cutout: "75%",
+          animation: { duration: 900, easing: "easeOutQuart" },
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: { label: function (ctx) {
+              var v = ctx.parsed || 0; var pct = total ? Math.round(v / total * 100) : 0;
+              return ctx.label + ": " + Math.round(v).toLocaleString("ru-RU") + " сом (" + pct + "%)";
+            } } }
+          }
+        }
+      });
+    }
+  }
+  function initCountUp() {
+    document.querySelectorAll(".kpi-value").forEach(function (el) {
+      var target = parseFloat(el.dataset.target); if (isNaN(target)) return;
+      var dur = 800, start = performance.now();
+      function tick(now) { var pr = Math.min((now - start) / dur, 1); var e = 1 - Math.pow(1 - pr, 3);
+        el.textContent = Math.floor(target * e).toLocaleString("ru-RU"); if (pr < 1) requestAnimationFrame(tick); }
+      requestAnimationFrame(tick);
+    });
+  }
+  function initBars() {
+    var fills = document.querySelectorAll(".progress-bar-fill");
+    if (!("IntersectionObserver" in window)) { fills.forEach(function (el) { el.style.width = el.dataset.width + "%"; }); return; }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { if (en.isIntersecting) { en.target.style.width = en.target.dataset.width + "%"; io.unobserve(en.target); } });
+    }, { threshold: 0.1 });
+    fills.forEach(function (el) { io.observe(el); });
+  }
+  window.addEventListener("load", function () { initCharts(); initCountUp(); initBars(); });
+})();
+</script>
 {% endblock %}
