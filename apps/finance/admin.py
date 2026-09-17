@@ -3,11 +3,13 @@ from django.contrib import admin
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin
 
+from apps.core.admin import LedgerDocumentMixin
+
 from .models import CashFlow
 
 
 @admin.register(CashFlow)
-class CashFlowAdmin(ModelAdmin):
+class CashFlowAdmin(LedgerDocumentMixin, ModelAdmin):
     list_display = ("date", "direction_display", "category", "amount", "comment")
     list_filter = ("direction", "category", "date")
     search_fields = ("comment",)

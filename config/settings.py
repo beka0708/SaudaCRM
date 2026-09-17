@@ -32,7 +32,6 @@ INSTALLED_APPS = [
     "apps.catalog",
     "apps.warehouse",
     "apps.sales",
-    "apps.consignment",
     "apps.debts",
     "apps.finance",
     "apps.reports",
@@ -161,8 +160,8 @@ UNFOLD = {
                 "items": [
                     {"title": "Продажи", "icon": "receipt_long", "link": reverse_lazy("admin:sales_sale_changelist")},
                     {"title": "Товары", "icon": "inventory_2", "link": reverse_lazy("admin:catalog_product_changelist")},
-                    {"title": "Приходы партий", "icon": "move_to_inbox", "link": reverse_lazy("admin:warehouse_receipt_changelist")},
-                    {"title": "Складские движения", "icon": "swap_vert", "link": reverse_lazy("admin:warehouse_stockmovement_changelist")},
+                    {"title": "Партии / приходы", "icon": "move_to_inbox", "link": reverse_lazy("admin:warehouse_batch_changelist")},
+                    {"title": "Списания из партий", "icon": "swap_vert", "link": reverse_lazy("admin:warehouse_batchconsumption_changelist")},
                 ],
             },
             {

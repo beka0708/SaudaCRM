@@ -29,12 +29,15 @@ class ClientAdmin(ModelAdmin):
         # раздувал суммы.
         from apps.debts.models import Debt, DebtPayment
 
+        # Сторнированные долги и оплаты в расчёт не идут.
         debt_amount = (
-            Debt.objects.filter(client=OuterRef("pk"))
+            Debt.objects.filter(client=OuterRef("pk"), is_reversed=False)
             .values("client").annotate(s=Sum("amount")).values("s")
         )
         paid = (
-            DebtPayment.objects.filter(debt__client=OuterRef("pk"))
+            DebtPayment.objects.filter(
+                debt__client=OuterRef("pk"), is_reversed=False, debt__is_reversed=False
+            )
             .values("debt__client").annotate(s=Sum("amount")).values("s")
         )
         return super().get_queryset(request).annotate(
@@ -67,6 +70,8 @@ class ClientAdmin(ModelAdmin):
             .order_by("-created_at")[:_HISTORY_LIMIT]
         )
 
+        # Сторнированные операции НЕ прячем — история нужна как раз для разбора
+        # спорных ситуаций. Помечаем и гасим цветом.
         events = []
         for s in sales:
             events.append({
@@ -74,6 +79,7 @@ class ClientAdmin(ModelAdmin):
                 "detail": s.get_payment_type_display(),
                 "amount": s.total, "sign": "",
                 "url": f"/admin/sales/sale/{s.pk}/change/",
+                "reversed": s.is_reversed,
             })
         for p in payments:
             events.append({
@@ -81,6 +87,7 @@ class ClientAdmin(ModelAdmin):
                 "detail": p.comment or f"долг #{p.debt_id}",
                 "amount": p.amount, "sign": "−",
                 "url": f"/admin/debts/debt/{p.debt_id}/change/",
+                "reversed": p.is_reversed or p.debt.is_reversed,
             })
         events.sort(key=lambda e: e["dt"], reverse=True)
         events = events[:_HISTORY_LIMIT]
@@ -93,28 +100,44 @@ class ClientAdmin(ModelAdmin):
         debt_val = getattr(obj, "_debt", None)
         if debt_val is None:
             debt_val = obj.current_debt
+        # В счётчиках — только живые операции; сторно видно построчно ниже.
+        live_sales = sum(1 for s in sales if not s.is_reversed)
+        live_payments = sum(1 for p in payments if not (p.is_reversed or p.debt.is_reversed))
+        reversed_count = len(sales) + len(payments) - live_sales - live_payments
         summary = format_html(
             '<div style="margin-bottom:10px;font-size:13px;color:#6b7280">'
             'Покупок: <b>{}</b> · Оплат долга: <b>{}</b> · Текущий долг: '
-            '<b style="color:#f59e0b">{} сом</b></div>',
-            len(sales), len(payments), money(debt_val),
+            '<b style="color:#f59e0b">{} сом</b>{}</div>',
+            live_sales, live_payments, money(debt_val),
+            format_html(' · сторнировано: <b>{}</b>', reversed_count) if reversed_count else "",
         )
+
+        def _row(e):
+            off = e["reversed"]
+            return (
+                "opacity:.5" if off else "",
+                e["dt"].strftime("%d.%m.%Y %H:%M"),
+                e["url"],
+                "#9ca3af" if off else e["color"],
+                f"{e['kind']} · СТОРНО" if off else e["kind"],
+                e["detail"],
+                "line-through" if off else "none",
+                e["sign"],
+                money(e["amount"]),
+            )
 
         rows = format_html_join(
             "",
-            '<tr>'
+            '<tr style="{}">'
             '<td style="padding:7px 12px;border-top:1px solid #eee;white-space:nowrap">{}</td>'
             '<td style="padding:7px 12px;border-top:1px solid #eee">'
             '<a href="{}" style="color:{};font-weight:600;text-decoration:none">{}</a></td>'
             '<td style="padding:7px 12px;border-top:1px solid #eee;color:#6b7280">{}</td>'
             '<td style="padding:7px 12px;border-top:1px solid #eee;text-align:right;'
-            'font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap">{}{} сом</td>'
+            'font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;'
+            'text-decoration:{}">{}{} сом</td>'
             '</tr>',
-            (
-                (e["dt"].strftime("%d.%m.%Y %H:%M"), e["url"], e["color"], e["kind"],
-                 e["detail"], e["sign"], money(e["amount"]))
-                for e in events
-            ),
+            (_row(e) for e in events),
         )
 
         note = ""

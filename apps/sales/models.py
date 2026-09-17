@@ -1,19 +1,32 @@
 """sales: продажа (Sale) и её позиции (SaleItem).
 
-Продажа — «документ»: после проведения не редактируется. Списание склада и
-создание долга/реализации выполняет sales.services.process_sale() в одной
-транзакции (вызывается из админки/бота).
+Продают ТОЛЬКО фасовками (целое кол-во). Цена вводится при продаже (за штуку).
+Себестоимость позиции (cogs) считается по FIFO при проведении. Продажа —
+«документ»: после проведения не редактируется. Оркестрация — process_sale().
 """
 from decimal import Decimal
 
 from django.db import models
+from django.utils import timezone
+
+from apps.core.models import ReversibleDocument
 
 
-class Sale(models.Model):
+class SaleQuerySet(models.QuerySet):
+    def active(self):
+        """Живые продажи — без сторнированных.
+
+        Для выручки/прибыли/ТОПов брать ИМЕННО это: сторнированная продажа не
+        должна попадать в аналитику и отчёты. В админке, наоборот, показываем
+        всё — сторно видно в истории.
+        """
+        return self.filter(is_reversed=False)
+
+
+class Sale(ReversibleDocument):
     class PaymentType(models.TextChoices):
         CASH = "cash", "Наличные"
-        # «Реализация» = денежный долг: клиент взял товар, должен сумму и гасит
-        # её деньгами (объединили бывшие «в долг» и «под реализацию»).
+        # «Реализация» = денежный долг: клиент взял товар, должен сумму.
         DEBT = "debt", "Реализация"
 
     client = models.ForeignKey(
@@ -26,17 +39,22 @@ class Sale(models.Model):
         help_text="Для наличной продажи можно не указывать.",
     )
     payment_type = models.CharField(
-        "Тип оплаты",
-        max_length=16,
-        choices=PaymentType.choices,
-        default=PaymentType.CASH,
+        "Тип оплаты", max_length=16, choices=PaymentType.choices, default=PaymentType.CASH
     )
     total = models.DecimalField(
-        "Сумма продажи", max_digits=12, decimal_places=2, default=0, editable=False
+        "Сумма продажи", max_digits=14, decimal_places=2, default=0, editable=False
     )
     comment = models.CharField("Комментарий", max_length=255, blank=True)
     is_processed = models.BooleanField("Проведена", default=False, editable=False)
-    created_at = models.DateTimeField("Дата продажи", auto_now_add=True)
+    # НЕ auto_now_add: продажу нужно уметь провести задним числом (забыли вбить
+    # вчера, импорт истории из Excel). Дата документа задаёт и дату проводки в кассе.
+    created_at = models.DateTimeField(
+        "Дата продажи",
+        default=timezone.now,
+        help_text="По умолчанию — сейчас. Можно указать прошедшую дату.",
+    )
+
+    objects = SaleQuerySet.as_manager()
 
     class Meta:
         verbose_name = "Продажа"
@@ -44,12 +62,12 @@ class Sale(models.Model):
         ordering = ["-created_at"]
 
     def __str__(self):
-        return f"Продажа #{self.pk} — {self.get_payment_type_display()} — {self.total}"
+        mark = " (СТОРНО)" if self.is_reversed else ""
+        return f"Продажа #{self.pk} — {self.get_payment_type_display()} — {self.total}{mark}"
 
     def clean(self):
         from django.core.exceptions import ValidationError
 
-        # Реализация (долг) невозможна без клиента.
         if self.payment_type == self.PaymentType.DEBT and not self.client_id:
             raise ValidationError({"client": "Для реализации (долга) нужно указать клиента."})
 
@@ -64,30 +82,13 @@ class SaleItem(models.Model):
         related_name="sale_items",
         verbose_name="Товар",
     )
-    packaging = models.ForeignKey(
-        "catalog.PackagingUnit",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        verbose_name="Фасовка",
-        help_text="Пусто = количество в базовых единицах.",
+    packs = models.PositiveIntegerField("Количество, фасовок")
+    price_per_unit = models.DecimalField(
+        "Цена за штуку", max_digits=12, decimal_places=2,
+        help_text="Цена за базовую единицу (штуку). У разных клиентов разная.",
     )
-    count = models.DecimalField(
-        "Количество",
-        max_digits=12,
-        decimal_places=3,
-        help_text="Сколько выбранных фасовок (или базовых единиц).",
-    )
-    base_quantity = models.DecimalField(
-        "В базовых ед.", max_digits=12, decimal_places=3, editable=False, default=0
-    )
-    price = models.DecimalField(
-        "Цена за ед.",
-        max_digits=12,
-        decimal_places=2,
-        default=0,
-        blank=True,
-        help_text="За базовую единицу. Пусто → возьмём отпускную цену товара.",
+    cogs = models.DecimalField(
+        "Себестоимость (FIFO)", max_digits=14, decimal_places=2, default=0, editable=False
     )
 
     class Meta:
@@ -95,22 +96,16 @@ class SaleItem(models.Model):
         verbose_name_plural = "Позиции продажи"
 
     def __str__(self):
-        return f"{self.product} × {self.count}"
+        return f"{self.product} × {self.packs} {self.product.pack_name}"
+
+    @property
+    def base_quantity(self) -> int:
+        return self.packs * self.product.units_per_pack
 
     @property
     def line_total(self) -> Decimal:
-        return self.base_quantity * self.price
+        return Decimal(self.base_quantity) * self.price_per_unit
 
-    def clean(self):
-        from django.core.exceptions import ValidationError
-
-        if self.packaging_id and self.product_id and self.packaging.product_id != self.product_id:
-            raise ValidationError({"packaging": "Эта фасовка принадлежит другому товару."})
-
-    def save(self, *args, **kwargs):
-        from apps.catalog.services import to_base_units
-
-        self.base_quantity = to_base_units(self.product, self.count, self.packaging)
-        if not self.price:
-            self.price = self.product.sale_price
-        super().save(*args, **kwargs)
+    @property
+    def profit(self) -> Decimal:
+        return self.line_total - self.cogs

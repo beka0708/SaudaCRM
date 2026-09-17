@@ -90,22 +90,24 @@ def profit(start=None, end=None) -> Decimal:
 # --- Авто-проводки из других разделов ---
 
 def record_sale_income(sale):
-    """Наличная продажа → приход денег в кассу."""
+    """Наличная продажа → приход денег в кассу (датой продажи)."""
     return record_cash_flow(
         CashFlow.Direction.IN,
         CashFlow.Category.SALE,
         sale.total,
+        date=timezone.localdate(sale.created_at),
         comment=f"Продажа #{sale.pk}",
         sale=sale,
     )
 
 
 def record_debt_payment_income(payment):
-    """Оплата долга (реализация) → приход денег в кассу."""
+    """Оплата долга (реализация) → приход денег в кассу (датой оплаты)."""
     return record_cash_flow(
         CashFlow.Direction.IN,
         CashFlow.Category.DEBT_PAYMENT,
         payment.amount,
+        date=timezone.localdate(payment.created_at),
         comment=f"Оплата долга #{payment.debt_id}",
         debt_payment=payment,
     )
