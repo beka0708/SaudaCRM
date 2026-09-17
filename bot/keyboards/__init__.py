@@ -8,16 +8,20 @@ from aiogram.types import (
 
 # Кнопки главного меню (по мере добавления сценариев расширяем).
 BTN_SALE = "🧾 Продажа"
+BTN_RECEIPT = "📥 Приход"
 BTN_DEBT = "💰 Оплата долга"
 BTN_EXPENSE = "➖ Расход"
+BTN_UNDO = "↩️ Отменить"
 
 
 def main_menu() -> ReplyKeyboardMarkup:
+    # Четыре ежедневных сценария сверху, отмена — отдельной строкой ниже:
+    # ею пользуются редко, и случайно нажать её не должно быть легко.
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text=BTN_SALE)],
-            [KeyboardButton(text=BTN_DEBT)],
-            [KeyboardButton(text=BTN_EXPENSE)],
+            [KeyboardButton(text=BTN_SALE), KeyboardButton(text=BTN_RECEIPT)],
+            [KeyboardButton(text=BTN_DEBT), KeyboardButton(text=BTN_EXPENSE)],
+            [KeyboardButton(text=BTN_UNDO)],
         ],
         resize_keyboard=True,
     )

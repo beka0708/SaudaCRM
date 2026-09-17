@@ -1,9 +1,9 @@
 """Сценарий «Продажа» (FSM с корзиной).
 
-Шаги: товар → фасовка/поштучно → количество → (ещё товар?) → тип оплаты →
+Шаги: товар → количество фасовок → цена за штуку → (ещё товар?) → тип оплаты →
 клиент (для реализации) → подтверждение → провести продажу.
-Вся запись — через apps.sales.services.create_sale (склад + касса/долг атомарно).
-ORM-вызовы обёрнуты в sync_to_async.
+Продают только фасовками; цену вводит продавец (у разных клиентов разная).
+Запись — через apps.sales.services.create_sale (FIFO-списание + касса/долг атомарно).
 """
 from decimal import Decimal, InvalidOperation
 
@@ -17,40 +17,16 @@ from aiogram.types import (
 )
 from asgiref.sync import sync_to_async
 
+from apps.catalog.services import pack_label
 from bot.keyboards import BTN_SALE, main_menu
+from bot.queries import get_product_info as _get_product_info
+from bot.queries import get_products as _get_products
 from bot.states import SaleFSM
 
 router = Router()
 
 
 # --- обёртки над ORM/сервисами ---
-
-@sync_to_async
-def _get_products():
-    from apps.catalog.models import Product
-
-    return list(Product.objects.filter(is_active=True).values_list("id", "name"))
-
-
-@sync_to_async
-def _get_product_info(pid):
-    from apps.catalog.models import Product
-
-    p = Product.objects.get(pk=pid)
-    return {"id": p.id, "name": p.name, "base_unit": p.base_unit}
-
-
-@sync_to_async
-def _get_packagings(pid):
-    from apps.catalog.models import PackagingUnit
-    from apps.catalog.services import fmt_qty
-
-    out = []
-    for pack in PackagingUnit.objects.filter(product_id=pid).select_related("product"):
-        label = f"{pack.name} = {fmt_qty(pack.quantity_in_base)} {pack.product.base_unit}"
-        out.append((pack.id, label, pack.name))
-    return out
-
 
 @sync_to_async
 def _get_clients():
@@ -61,23 +37,23 @@ def _get_clients():
 
 @sync_to_async
 def _finalize_sale(items, payment_type, client_id):
-    from apps.catalog.models import PackagingUnit, Product
+    from django.core.exceptions import ValidationError
+
+    from apps.catalog.models import Product
     from apps.clients.models import Client
     from apps.finance.services import get_cash_balance
     from apps.sales.services import create_sale
 
-    resolved = []
-    for it in items:
-        product = Product.objects.get(pk=it["product_id"])
-        packaging = (
-            PackagingUnit.objects.get(pk=it["packaging_id"])
-            if it.get("packaging_id")
-            else None
-        )
-        resolved.append({"product": product, "packaging": packaging, "count": it["count"]})
-
+    resolved = [
+        {"product": Product.objects.get(pk=it["product_id"]),
+         "packs": it["packs"], "price_per_unit": it["price_per_unit"]}
+        for it in items
+    ]
     client = Client.objects.get(pk=client_id) if client_id else None
-    sale = create_sale(payment_type, resolved, client=client)
+    try:
+        sale = create_sale(payment_type, resolved, client=client)
+    except ValidationError as e:
+        return {"error": "; ".join(e.messages)}
     return {
         "id": sale.id,
         "total": sale.total,
@@ -100,8 +76,11 @@ def _pairs_kb(pairs, prefix):
 def _render_cart(items):
     lines = ["🧾 <b>Корзина:</b>"]
     for i, it in enumerate(items, 1):
-        unit = it["packaging_name"] or it["base_unit"]
-        lines.append(f"{i}. {it['product_name']} — {it['count']} {unit}")
+        lines.append(
+            f"{i}. {it['product_name']} — {it['packs']} "
+            f"{pack_label(it['pack_name'], it['packs'])} "
+            f"× {it['price_per_unit']} сом/шт"
+        )
     return "\n".join(lines)
 
 
@@ -151,67 +130,53 @@ async def sale_start(message: Message, state: FSMContext):
 async def sale_product(cb: CallbackQuery, state: FSMContext):
     pid = int(cb.data.split(":")[1])
     info = await _get_product_info(pid)
-    packs = await _get_packagings(pid)
     await state.update_data(
-        cur_product_id=info["id"],
-        cur_product_name=info["name"],
-        cur_base_unit=info["base_unit"],
-        cur_packs={pk: name for pk, _label, name in packs},
+        cur_product_id=info["id"], cur_product_name=info["name"], cur_pack_name=info["pack_name"]
     )
-    rows = [
-        [InlineKeyboardButton(text=label, callback_data=f"sale_pack:{pk}")]
-        for pk, label, _name in packs
-    ]
-    rows.append(
-        [InlineKeyboardButton(text=f"поштучно ({info['base_unit']})", callback_data="sale_pack:base")]
-    )
-    await state.set_state(SaleFSM.packaging)
-    await cb.message.edit_text(
-        f"Товар: <b>{info['name']}</b>\nВыберите фасовку или поштучно:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
-    )
-    await cb.answer()
-
-
-@router.callback_query(SaleFSM.packaging, F.data.startswith("sale_pack:"))
-async def sale_packaging(cb: CallbackQuery, state: FSMContext):
-    val = cb.data.split(":")[1]
-    data = await state.get_data()
-    if val == "base":
-        pack_id, pack_name, unit_label = None, None, data["cur_base_unit"]
-    else:
-        pack_id = int(val)
-        pack_name = data["cur_packs"].get(pack_id)
-        unit_label = pack_name
-    await state.update_data(cur_packaging_id=pack_id, cur_packaging_name=pack_name)
     await state.set_state(SaleFSM.quantity)
-    await cb.message.edit_text(f"Сколько ({unit_label})? Введите число:")
+    await cb.message.edit_text(
+        f"Товар: <b>{info['name']}</b>\nСколько {info['pack_name']} (фасовок)? Введите число:"
+    )
     await cb.answer()
 
 
 @router.message(SaleFSM.quantity)
 async def sale_quantity(message: Message, state: FSMContext):
+    raw = (message.text or "").strip()
+    packs = int(raw) if raw.isdigit() else 0
+    if packs <= 0:
+        await message.answer("Нужно целое число фасовок (напр. 2). Ещё раз:")
+        return
+    await state.update_data(cur_packs=packs)
+    await state.set_state(SaleFSM.price)
+    data = await state.get_data()
+    await message.answer(
+        f"{data['cur_product_name']}: {packs} "
+        f"{pack_label(data['cur_pack_name'], packs)}.\n"
+        f"Цена за штуку (сом)?"
+    )
+
+
+@router.message(SaleFSM.price)
+async def sale_price(message: Message, state: FSMContext):
     raw = (message.text or "").replace(",", ".").strip()
     try:
-        count = Decimal(raw)
+        price = Decimal(raw)
     except (InvalidOperation, TypeError):
-        count = None
-    if count is None or count <= 0:
-        await message.answer("Нужно положительное число. Ещё раз:")
+        price = None
+    if price is None or price <= 0:
+        await message.answer("Нужна цена — положительное число (напр. 15). Ещё раз:")
         return
 
     data = await state.get_data()
     items = data.get("items", [])
-    items.append(
-        {
-            "product_id": data["cur_product_id"],
-            "product_name": data["cur_product_name"],
-            "base_unit": data["cur_base_unit"],
-            "packaging_id": data.get("cur_packaging_id"),
-            "packaging_name": data.get("cur_packaging_name"),
-            "count": str(count),
-        }
-    )
+    items.append({
+        "product_id": data["cur_product_id"],
+        "product_name": data["cur_product_name"],
+        "pack_name": data["cur_pack_name"],
+        "packs": data["cur_packs"],
+        "price_per_unit": str(price),
+    })
     await state.update_data(items=items)
     await state.set_state(SaleFSM.more)
     kb = InlineKeyboardMarkup(
@@ -251,9 +216,7 @@ async def sale_payment(cb: CallbackQuery, state: FSMContext):
     if pay == "debt":
         clients = await _get_clients()
         if not clients:
-            await cb.message.edit_text(
-                "Нет клиентов. Для реализации добавьте клиента в админке."
-            )
+            await cb.message.edit_text("Нет клиентов. Для реализации добавьте клиента в админке.")
             await cb.answer()
             return
         await state.set_state(SaleFSM.client)
@@ -278,6 +241,13 @@ async def sale_confirm_yes(cb: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     result = await _finalize_sale(data["items"], data["payment_type"], data.get("client_id"))
     await state.clear()
+
+    if result.get("error"):
+        await cb.message.edit_text(f"❌ Не удалось провести продажу: {result['error']}")
+        await cb.message.answer("Меню:", reply_markup=main_menu())
+        await cb.answer()
+        return
+
     msg = (
         f"✅ Продажа #{result['id']} оформлена.\n"
         f"Сумма: <b>{result['total']}</b> сом ({result['payment']})\n"
