@@ -65,7 +65,7 @@ def dashboard_callback(request, context):
          "unit": "сом", "sub": "за 30 дней", "value_class": "sd-slate", "icon_color": "sd-icon-emerald",
          "href": "/admin/finance/cashflow/", "trend": _trend(profit_30, profit_prev)},
         {"icon": "inventory_2", "label": "Стоимость склада", "value": s.money(wh["value"]), "target": int(wh["value"]),
-         "unit": "сом", "sub": f"{fmt_qty(wh['units'])} ед. на складе", "value_class": "sd-slate",
+         "unit": "сом", "sub": f"{wh['units']} фасовок на складе", "value_class": "sd-slate",
          "icon_color": "sd-icon-sky6", "href": "/admin/catalog/product/"},
         {"icon": "groups", "label": "Долги клиентов", "value": s.money(debt), "target": int(debt),
          "unit": "сом", "sub": f"{debtors_count} должников", "value_class": "sd-slate",
@@ -102,7 +102,7 @@ def dashboard_callback(request, context):
         pct = round(float(r["revenue"] / max_top * 100))
         name_cell = format_html(
             '<a href="/admin/catalog/product/{}/change/" class="sd-link">{}</a>', r["id"], r["name"])
-        top_rows.append([name_cell, f"{fmt_qty(r['qty'])} шт", _minibar(s.money(r["revenue"]), pct, "#94a3b8")])
+        top_rows.append([name_cell, f"{r['qty']} уп.", _minibar(s.money(r["revenue"]), pct, "#94a3b8")])
     top_table = {"headers": ["Товар", "Продано", "Выручка"], "rows": top_rows}
     top_title = mark_safe(
         '<span class="material-symbols-outlined sd-titleicon" style="color:#f59e0b">'

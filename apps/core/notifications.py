@@ -61,12 +61,13 @@ def broadcast(text) -> int:
 
 
 def notify_low_stock(product) -> int:
-    """Уведомление о низком остатке товара."""
-    from apps.catalog.services import fmt_qty, stock_breakdown
+    """Уведомление о низком остатке товара (в фасовках)."""
+    from apps.catalog.services import pack_label, stock_breakdown
 
+    threshold = product.low_stock_threshold
     text = (
         "⚠️ <b>Низкий остаток</b>\n"
         f"{product.name}: осталось {stock_breakdown(product)}\n"
-        f"Порог пополнения: {fmt_qty(product.low_stock_threshold)} {product.base_unit}"
+        f"Порог пополнения: {threshold} {pack_label(product.pack_name, threshold)}"
     )
     return broadcast(text)

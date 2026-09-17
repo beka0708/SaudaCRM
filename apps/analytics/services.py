@@ -7,7 +7,7 @@
 from datetime import timedelta
 from decimal import Decimal
 
-from django.db.models import DecimalField, F, Sum
+from django.db.models import DecimalField, F, OuterRef, Subquery, Sum, Value
 from django.db.models.functions import Coalesce, TruncDate
 from django.utils import timezone
 
@@ -37,9 +37,12 @@ def prev_month_range(d=None):
     return last_prev.replace(day=1), last_prev
 
 
-def money(value) -> str:
-    """1240000 -> '1 240 000' (Decimal форматируется напрямую, без float)."""
-    return f"{value or ZERO:,.0f}".replace(",", " ")
+def money(value, dec=0) -> str:
+    """1240000 -> '1 240 000' (Decimal форматируется напрямую, без float).
+
+    `dec` — знаков после запятой (в утреннем дайджесте выручка идёт с копейками).
+    """
+    return f"{value or ZERO:,.{dec}f}".replace(",", " ")
 
 
 def pct_change(current, previous):
@@ -55,22 +58,29 @@ def pct_change(current, previous):
 def _products_with_stock():
     from apps.catalog.models import Product
 
-    # annotate называем stock_qty: у Product есть property .stock (без сеттера).
+    # stock_qty — остаток В ФАСОВКАХ (сумма остатков партий). Не .stock (property).
     return Product.objects.annotate(
-        stock_qty=Coalesce(Sum("movements__quantity"), ZERO, output_field=DEC)
+        stock_qty=Coalesce(Sum("batches__packs_remaining"), 0)
     )
 
 
 def warehouse_value():
-    value, units = ZERO, ZERO
-    for p in _products_with_stock():
-        value += p.stock_qty * p.cost_price
-        units += p.stock_qty
-    return {"value": value, "units": units}
+    """Стоимость склада (по себестоимости партий) + остаток в фасовках."""
+    from apps.warehouse.models import Batch
+
+    agg = Batch.objects.aggregate(
+        value=Coalesce(
+            Sum(F("packs_remaining") * F("product__units_per_pack") * F("cost_per_unit"),
+                output_field=DEC),
+            Value(0, output_field=DEC),
+        ),
+        packs=Coalesce(Sum("packs_remaining"), 0),
+    )
+    return {"value": agg["value"] or ZERO, "units": agg["packs"] or 0}
 
 
 def low_stock_products():
-    from apps.catalog.services import fmt_qty, stock_breakdown
+    from apps.catalog.services import pack_label, stock_breakdown
 
     rows = []
     qs = _products_with_stock().filter(
@@ -81,7 +91,10 @@ def low_stock_products():
             {
                 "name": p.name,
                 "stock_label": stock_breakdown(p, p.stock_qty),
-                "threshold": f"{fmt_qty(p.low_stock_threshold)} {p.base_unit}",
+                "threshold": (
+                    f"{p.low_stock_threshold} "
+                    f"{pack_label(p.pack_name, p.low_stock_threshold)}"
+                ),
             }
         )
     return rows
@@ -92,7 +105,9 @@ def low_stock_products():
 def _sales_qs(start=None, end=None):
     from apps.sales.models import Sale
 
-    qs = Sale.objects.all()
+    # .active() — без сторнированных: отменённая продажа не должна попадать
+    # ни в выручку, ни в прибыль, ни в ТОПы.
+    qs = Sale.objects.active()
     if start:
         qs = qs.filter(created_at__date__gte=start)
     if end:
@@ -129,7 +144,8 @@ def revenue_by_day(days=30):
 
     start = today() - timedelta(days=days - 1)
     raw = (
-        Sale.objects.filter(created_at__date__gte=start)
+        Sale.objects.active()
+        .filter(created_at__date__gte=start)
         .annotate(d=TruncDate("created_at"))
         .values("d")
         .annotate(total=Sum("total"))
@@ -148,7 +164,8 @@ def payment_split(start=None):
 
     start = start or rolling_start()
     rows = (
-        Sale.objects.filter(created_at__date__gte=start)
+        Sale.objects.active()
+        .filter(created_at__date__gte=start)
         .values("payment_type")
         .annotate(total=Sum("total"))
     )
@@ -161,7 +178,8 @@ def payment_split(start=None):
 def _saleitems_qs(start=None, end=None):
     from apps.sales.models import SaleItem
 
-    qs = SaleItem.objects.all()
+    # Позиции сторнированных продаж исключаем — товар вернулся в партии.
+    qs = SaleItem.objects.filter(sale__is_reversed=False)
     if start:
         qs = qs.filter(sale__created_at__date__gte=start)
     if end:
@@ -171,57 +189,56 @@ def _saleitems_qs(start=None, end=None):
 
 def top_products(start=None, end=None, limit=8):
     start = start or rolling_start()
+    rev_expr = F("packs") * F("product__units_per_pack") * F("price_per_unit")
     rows = (
         _saleitems_qs(start, end)
         .values("product", "product__name")
         .annotate(
-            revenue=Sum(F("base_quantity") * F("price"), output_field=DEC),
-            qty=Sum("base_quantity"),
+            revenue=Sum(rev_expr, output_field=DEC),
+            qty=Sum("packs"),
         )
         .order_by("-revenue")[:limit]
     )
     return [
         {"id": r["product"], "name": r["product__name"],
-         "revenue": r["revenue"] or ZERO, "qty": r["qty"] or ZERO}
+         "revenue": r["revenue"] or ZERO, "qty": r["qty"] or 0}
         for r in rows
     ]
 
 
 def margin_by_product(start=None, end=None, limit=12):
     start = start or rolling_start()
+    rev_expr = F("packs") * F("product__units_per_pack") * F("price_per_unit")
     rows = (
         _saleitems_qs(start, end)
         .values("product", "product__name")
         .annotate(
-            revenue=Sum(F("base_quantity") * F("price"), output_field=DEC),
-            profit=Sum(
-                F("base_quantity") * (F("price") - F("product__cost_price")),
-                output_field=DEC,
-            ),
+            revenue=Sum(rev_expr, output_field=DEC),
+            cost=Coalesce(Sum("cogs"), Value(0, output_field=DEC)),
         )
-        .order_by("-profit")[:limit]
     )
     result = []
     for r in rows:
         revenue = r["revenue"] or ZERO
-        profit = r["profit"] or ZERO
+        profit = revenue - (r["cost"] or ZERO)  # реальная FIFO-себестоимость
         pct = float(profit / revenue * 100) if revenue else 0.0
         result.append({"id": r["product"], "name": r["product__name"], "profit": profit, "pct": pct})
-    return result
+    result.sort(key=lambda x: x["profit"], reverse=True)
+    return result[:limit]
 
 
 def slow_movers(start=None, end=None, limit=8):
     """Медленно продаваемые: товары с наименьшими продажами за период (с остатком)."""
     start = start or rolling_start()
     sold = {
-        r["product_id"]: (r["qty"] or ZERO)
-        for r in _saleitems_qs(start, end).values("product_id").annotate(qty=Sum("base_quantity"))
+        r["product_id"]: (r["packs"] or 0)
+        for r in _saleitems_qs(start, end).values("product_id").annotate(packs=Sum("packs"))
     }
     rows = []
     for p in _products_with_stock():
         if p.stock_qty <= 0:
             continue
-        rows.append({"id": p.id, "name": p.name, "qty_sold": sold.get(p.id, ZERO), "stock": p.stock_qty})
+        rows.append({"id": p.id, "name": p.name, "qty_sold": sold.get(p.id, 0), "stock": p.stock_qty})
     rows.sort(key=lambda x: x["qty_sold"])
     return rows[:limit]
 
@@ -232,12 +249,12 @@ def stock_forecast(start=None, end=None, limit=12):
     end = end or today()
     days = max((end - start).days + 1, 1)
     sold = {
-        r["product_id"]: (r["qty"] or ZERO)
-        for r in _saleitems_qs(start, end).values("product_id").annotate(qty=Sum("base_quantity"))
+        r["product_id"]: (r["packs"] or 0)
+        for r in _saleitems_qs(start, end).values("product_id").annotate(packs=Sum("packs"))
     }
     result = []
     for p in _products_with_stock():
-        qty_sold = sold.get(p.id, ZERO)
+        qty_sold = sold.get(p.id, 0)
         if qty_sold <= 0 or p.stock_qty <= 0:
             continue
         avg_per_day = qty_sold / days
@@ -245,6 +262,102 @@ def stock_forecast(start=None, end=None, limit=12):
         result.append({"id": p.id, "name": p.name, "days_left": days_left, "stock": p.stock_qty})
     result.sort(key=lambda x: x["days_left"] if x["days_left"] is not None else 10**9)
     return result[:limit]
+
+
+# ---------- показатели «как в старом боте» (для утреннего дайджеста) ----------
+
+def revenue_and_cogs(start, end):
+    """Выручка и себестоимость ПРОДАННОГО за период (по позициям продаж)."""
+    rev_expr = F("packs") * F("product__units_per_pack") * F("price_per_unit")
+    agg = _saleitems_qs(start, end).aggregate(
+        revenue=Coalesce(Sum(rev_expr, output_field=DEC), Value(0, output_field=DEC)),
+        cogs=Coalesce(Sum("cogs"), Value(0, output_field=DEC)),
+    )
+    return {"revenue": agg["revenue"] or ZERO, "cogs": agg["cogs"] or ZERO}
+
+
+def _expenses_qs(start, end):
+    from apps.finance.models import CashFlow
+
+    return CashFlow.objects.filter(
+        direction=CashFlow.Direction.OUT, date__gte=start, date__lte=end
+    )
+
+
+def operating_expenses(start, end):
+    """Расходы за период БЕЗ закупки товара.
+
+    Закупка — не расход периода: стоимость товара попадает в отчёт через
+    себестоимость проданного (COGS) в момент продажи. Если считать и закупку,
+    и себестоимость, товар учтётся дважды и прибыль уедет в минус.
+    Ровно так считал старый бот (сверено по его цифрам за июль и август).
+    """
+    from apps.finance.models import CashFlow
+
+    s = (
+        _expenses_qs(start, end)
+        .exclude(category=CashFlow.Category.PURCHASE)
+        .aggregate(s=Sum("amount"))["s"]
+    )
+    return s or ZERO
+
+
+def expenses_by_category(category, start, end):
+    """Сумма расходов одной категории за период (напр. личные расходы Атая)."""
+    s = _expenses_qs(start, end).filter(category=category).aggregate(s=Sum("amount"))["s"]
+    return s or ZERO
+
+
+def month_indicators(start, end):
+    """Показатели периода: выручка, себестоимость, расходы, ЧИСТАЯ ПРИБЫЛЬ.
+
+    Прибыль = выручка − себестоимость − расходы (метод начисления), а НЕ
+    `finance.services.profit` (кассовый: приход − расход). Обе метрики нужны:
+    кассовая показывает движение денег, эта — заработок на товаре.
+    """
+    rc = revenue_and_cogs(start, end)
+    expenses = operating_expenses(start, end)
+    return {
+        "revenue": rc["revenue"],
+        "cogs": rc["cogs"],
+        "expenses": expenses,
+        "profit": rc["revenue"] - rc["cogs"] - expenses,
+    }
+
+
+def stock_report():
+    """Остатки всех товаров: фасовки + стоимость по себестоимости. Один запрос."""
+    from apps.catalog.services import pack_label
+    from apps.warehouse.models import Batch
+
+    rows = (
+        Batch.objects.filter(packs_remaining__gt=0)
+        .values("product__name", "product__pack_name")
+        .annotate(
+            packs=Sum("packs_remaining"),
+            value=Coalesce(
+                Sum(
+                    F("packs_remaining") * F("product__units_per_pack") * F("cost_per_unit"),
+                    output_field=DEC,
+                ),
+                Value(0, output_field=DEC),
+            ),
+        )
+    )
+    result = [
+        {
+            "name": r["product__name"],
+            "packs": r["packs"] or 0,
+            "pack_label": pack_label(r["product__pack_name"], r["packs"] or 0),
+            "value": r["value"] or ZERO,
+        }
+        for r in rows
+    ]
+    # Сортируем в Python, а НЕ в БД: база создана с collation en_US.UTF-8, где
+    # названия с пробелом («Масло растительное») уезжают в конец списка.
+    # Так порядок не зависит от настроек сервера.
+    result.sort(key=lambda r: r["name"].lower())
+    return result, sum((r["value"] for r in result), ZERO)
 
 
 def period_summary(start, end):
@@ -270,37 +383,87 @@ def month_comparison():
 def total_debt():
     from apps.debts.models import Debt, DebtPayment
 
-    debts = Debt.objects.aggregate(s=Sum("amount"))["s"] or ZERO
-    paid = DebtPayment.objects.aggregate(s=Sum("amount"))["s"] or ZERO
+    debts = Debt.objects.active().aggregate(s=Sum("amount"))["s"] or ZERO
+    paid = (
+        DebtPayment.objects.filter(is_reversed=False, debt__is_reversed=False)
+        .aggregate(s=Sum("amount"))["s"]
+        or ZERO
+    )
     return debts - paid
 
 
-def top_debtors(limit=8):
+def _debtors_qs():
+    """Клиенты с ненулевым долгом, одним запросом (раньше был N+1 на дашборде).
+
+    Отдельные подзапросы, чтобы JOIN не раздувал суммы. Сторно не считаем.
+    """
     from apps.clients.models import Client
+    from apps.debts.models import Debt, DebtPayment
 
-    rows = []
-    for c in Client.objects.all():
-        debt = c.current_debt
-        if debt > 0:
-            rows.append({"id": c.id, "name": c.name, "debt": debt})
-    rows.sort(key=lambda x: x["debt"], reverse=True)
-    return rows[:limit], len(rows)
-
-
-def top_clients_by_purchase(start=None, end=None, limit=8):
-    """ТОП клиентов по объёму закупок за период (сумма продаж клиенту)."""
-    from apps.sales.models import Sale
-
-    start = start or rolling_start()
-    qs = Sale.objects.filter(created_at__date__gte=start, client__isnull=False)
-    if end:
-        qs = qs.filter(created_at__date__lte=end)
-    rows = (
-        qs.values("client", "client__name")
-        .annotate(total=Sum("total"))
-        .order_by("-total")[:limit]
+    debt_amount = (
+        Debt.objects.filter(client=OuterRef("pk"), is_reversed=False)
+        .values("client").annotate(s=Sum("amount")).values("s")
     )
-    return [
-        {"id": r["client"], "name": r["client__name"], "total": r["total"] or ZERO}
-        for r in rows
+    paid = (
+        DebtPayment.objects.filter(
+            debt__client=OuterRef("pk"), is_reversed=False, debt__is_reversed=False
+        )
+        .values("debt__client").annotate(s=Sum("amount")).values("s")
+    )
+    return (
+        Client.objects.annotate(
+            debt_left=Coalesce(Subquery(debt_amount, output_field=DEC), Value(0, output_field=DEC))
+            - Coalesce(Subquery(paid, output_field=DEC), Value(0, output_field=DEC))
+        )
+        .filter(debt_left__gt=0)
+        .order_by("-debt_left")
+    )
+
+
+def top_debtors(limit=8):
+    """ТОП должников для дашборда: строки + общее число должников."""
+    qs = _debtors_qs()
+    total = qs.count()
+    rows = [{"id": c.id, "name": c.name, "debt": c.debt_left} for c in qs[:limit]]
+    return rows, total
+
+
+def all_debtors():
+    """ВСЕ должники + итоговая сумма — для утреннего дайджеста (там без обрезки)."""
+    rows = [
+        {"id": c.id, "name": c.name, "debt": c.debt_left} for c in _debtors_qs()
     ]
+    return rows, sum((r["debt"] for r in rows), ZERO)
+
+
+def top_clients_by_profit(start=None, end=None, limit=8):
+    """ТОП клиентов по ПРИБЫЛИ за период (ТЗ 10: «самые прибыльные клиенты»).
+
+    Прибыль = выручка − реальная FIFO-себестоимость (`cogs`), а не оборот:
+    крупный покупатель с большой скидкой может приносить меньше маленького.
+    Наличные продажи без клиента в рейтинг не попадают.
+    """
+    start = start or rolling_start()
+    rev_expr = F("packs") * F("product__units_per_pack") * F("price_per_unit")
+    rows = (
+        _saleitems_qs(start, end)
+        .filter(sale__client__isnull=False)
+        .values("sale__client", "sale__client__name")
+        .annotate(
+            revenue=Sum(rev_expr, output_field=DEC),
+            cost=Coalesce(Sum("cogs"), Value(0, output_field=DEC)),
+        )
+    )
+    result = []
+    for r in rows:
+        revenue = r["revenue"] or ZERO
+        profit = revenue - (r["cost"] or ZERO)
+        result.append({
+            "id": r["sale__client"],
+            "name": r["sale__client__name"],
+            "profit": profit,
+            "total": revenue,
+            "pct": float(profit / revenue * 100) if revenue else 0.0,
+        })
+    result.sort(key=lambda x: x["profit"], reverse=True)
+    return result[:limit]

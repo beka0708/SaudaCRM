@@ -92,7 +92,7 @@ def analytics_view(request):
     # --- медленно продаваемые ---
     slow_table = {
         "headers": ["Товар", "Продано за период", "Остаток"],
-        "rows": [[_product_link(r["id"], r["name"]), f"{fmt_qty(r['qty_sold'])} шт", f"{fmt_qty(r['stock'])} шт"]
+        "rows": [[_product_link(r["id"], r["name"]), f"{r['qty_sold']} уп.", f"{r['stock']} уп."]
                  for r in s.slow_movers(start, end)],
     }
 
@@ -108,7 +108,7 @@ def analytics_view(request):
             cell = format_html('<span style="color:#d97706;font-weight:600">{} дн</span>', dl)
         else:
             cell = f"{dl} дн"
-        forecast_rows.append([_product_link(r["id"], r["name"]), f"{fmt_qty(r['stock'])} шт", cell])
+        forecast_rows.append([_product_link(r["id"], r["name"]), f"{r['stock']} уп.", cell])
     forecast_table = {"headers": ["Товар", "Остаток", "Хватит на"], "rows": forecast_rows}
 
     # --- топ должников (bar оранжевый — долги) ---
@@ -120,14 +120,21 @@ def analytics_view(request):
         debtor_rows.append([_client_link(r["id"], r["name"]), _minibar(s.money(r["debt"]), pct, "#f59e0b")])
     debtors_table = {"headers": ["Клиент", "Долг"], "rows": debtor_rows}
 
-    # --- топ клиентов по объёму закупок (bar синий — не путать с долгами) ---
-    buyers = s.top_clients_by_purchase(start, end)
-    max_buy = max((r["total"] for r in buyers), default=0) or 1
+    # --- топ клиентов по ПРИБЫЛИ (bar синий — не путать с долгами) ---
+    buyers = s.top_clients_by_profit(start, end)
+    max_buy = max((r["profit"] for r in buyers), default=0) or 1
     buyer_rows = []
     for r in buyers:
-        pct = round(float(r["total"] / max_buy * 100))
-        buyer_rows.append([_client_link(r["id"], r["name"]), _minibar(s.money(r["total"]), pct, "#3b82f6")])
-    buyers_table = {"headers": ["Клиент", "Закупки за период"], "rows": buyer_rows}
+        pct = round(float(r["profit"] / max_buy * 100)) if max_buy else 0
+        buyer_rows.append([
+            _client_link(r["id"], r["name"]),
+            _minibar(s.money(r["profit"]), pct, "#3b82f6"),
+            f"{r['pct']:.0f}%",
+        ])
+    buyers_table = {
+        "headers": ["Клиент", "Прибыль за период", "Маржа"],
+        "rows": buyer_rows,
+    }
 
     context.update({
         "title": "Аналитика",
@@ -139,7 +146,7 @@ def analytics_view(request):
         "forecast_title": _title("hourglass_empty", "Прогноз запаса (за период)", "#f59e0b"),
         "slow_title": _title("trending_down", "Медленно продаваемые (за период)", "#ef4444"),
         "debtors_title": _title("groups", "ТОП должников (сейчас)", "#f59e0b"),
-        "buyers_title": _title("shopping_cart", "ТОП клиентов (за период)", "#3b82f6"),
+        "buyers_title": _title("shopping_cart", "Самые прибыльные клиенты (за период)", "#3b82f6"),
         "comparison_table": comparison_table,
         "margin_table": margin_table,
         "slow_table": slow_table,

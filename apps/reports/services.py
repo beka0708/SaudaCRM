@@ -68,7 +68,8 @@ def single_sheet_response(filename, sheet_title, headers, rows, money_cols=()):
 def sales_rows(start, end):
     from apps.sales.models import Sale
 
-    qs = Sale.objects.filter(
+    # .active() — сторнированные продажи в отчёт не попадают.
+    qs = Sale.objects.active().filter(
         created_at__date__gte=start, created_at__date__lte=end
     ).select_related("client").order_by("created_at")
     return [
@@ -82,7 +83,8 @@ def debt_payment_rows(start, end):
     from apps.debts.models import DebtPayment
 
     qs = DebtPayment.objects.filter(
-        created_at__date__gte=start, created_at__date__lte=end
+        created_at__date__gte=start, created_at__date__lte=end,
+        is_reversed=False, debt__is_reversed=False,
     ).select_related("debt__client").order_by("created_at")
     return [
         [p.created_at.strftime("%d.%m.%Y"), str(p.debt.client), _num(p.amount), p.comment]
@@ -104,11 +106,11 @@ def expense_rows(start, end):
 
 def stock_rows():
     from apps.analytics.services import _products_with_stock
+    from apps.warehouse.services import stock_value
 
     rows = []
     for p in _products_with_stock().order_by("name"):
-        rows.append([p.name, p.base_unit, _num(p.stock_qty), _num(p.cost_price),
-                     _num(p.stock_qty * p.cost_price)])
+        rows.append([p.name, p.pack_name, int(p.stock_qty or 0), _num(stock_value(p))])
     return rows
 
 
@@ -116,13 +118,18 @@ def top_product_rows(start, end):
     from apps.sales.models import SaleItem
 
     qs = (
-        SaleItem.objects.filter(sale__created_at__date__gte=start, sale__created_at__date__lte=end)
+        SaleItem.objects.filter(
+            sale__created_at__date__gte=start, sale__created_at__date__lte=end,
+            sale__is_reversed=False,
+        )
         .values("product__name")
-        .annotate(qty=Sum("base_quantity"),
-                  revenue=Sum(F("base_quantity") * F("price"), output_field=_DEC))
+        .annotate(
+            sold=Sum("packs"),
+            revenue=Sum(F("packs") * F("product__units_per_pack") * F("price_per_unit"), output_field=_DEC),
+        )
         .order_by("-revenue")
     )
-    return [[r["product__name"], _num(r["qty"]), _num(r["revenue"])] for r in qs]
+    return [[r["product__name"], int(r["sold"] or 0), _num(r["revenue"])] for r in qs]
 
 
 def debtor_rows():
@@ -142,16 +149,17 @@ def summary_rows(start, end):
     from apps.finance.services import get_cash_balance, profit, total_expense
     from apps.sales.models import Sale
 
-    sales_cash = Sale.objects.filter(
+    sales_cash = Sale.objects.active().filter(
         created_at__date__gte=start, created_at__date__lte=end,
         payment_type=Sale.PaymentType.CASH,
     ).aggregate(s=Sum("total"))["s"] or Decimal("0")
-    sales_debt = Sale.objects.filter(
+    sales_debt = Sale.objects.active().filter(
         created_at__date__gte=start, created_at__date__lte=end,
         payment_type=Sale.PaymentType.DEBT,
     ).aggregate(s=Sum("total"))["s"] or Decimal("0")
     payments = DebtPayment.objects.filter(
-        created_at__date__gte=start, created_at__date__lte=end
+        created_at__date__gte=start, created_at__date__lte=end,
+        is_reversed=False, debt__is_reversed=False,
     ).aggregate(s=Sum("amount"))["s"] or Decimal("0")
     expenses = total_expense(start, end)
     prof = profit(start, end)
@@ -181,9 +189,9 @@ def build_period_response(start, end):
     _write_sheet(wb.create_sheet("Расходы"),
                  ["Дата", "Категория", "Сумма", "Комментарий"], expense_rows(start, end), money_cols=(3,))
     _write_sheet(wb.create_sheet("Остатки склада"),
-                 ["Товар", "Ед.", "Остаток", "Себестоимость", "Стоимость"], stock_rows(), money_cols=(4, 5))
+                 ["Товар", "Фасовка", "Остаток (фасовок)", "Стоимость"], stock_rows(), money_cols=(4,))
     _write_sheet(wb.create_sheet("ТОП товаров"),
-                 ["Товар", "Продано", "Выручка"], top_product_rows(start, end), money_cols=(3,))
+                 ["Товар", "Продано (фасовок)", "Выручка"], top_product_rows(start, end), money_cols=(3,))
     _write_sheet(wb.create_sheet("Долги клиентов"),
                  ["Клиент", "Телефон", "Долг"], debtor_rows(), money_cols=(3,))
 
