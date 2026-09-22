@@ -17,7 +17,12 @@ HOUR="${BACKUP_HOUR:-3}"
 DAILY_KEEP="${DAILY_KEEP:-30}"
 WEEKLY_KEEP="${WEEKLY_KEEP:-12}"
 MONTHLY_KEEP="${MONTHLY_KEEP:-12}"
-MIN_BYTES="${BACKUP_MIN_BYTES:-20000}"   # дамп меньше — считаем битым
+# Дамп считаем годным, если он содержит эту таблицу. Проверять по РАЗМЕРУ
+# нельзя: у пустой базы (например, перед первым импортом) дамп — всего
+# несколько КБ, но он совершенно корректный. А вот дамп, в котором нет схемы
+# приложения, — это подключение не к той базе, и его сохранять нельзя.
+REQUIRE_TABLE="${BACKUP_REQUIRE_TABLE:-sales_sale}"
+MIN_BYTES="${BACKUP_MIN_BYTES:-500}"     # защита от обрезанного файла
 
 export PGPASSWORD="$DB_PASSWORD"
 
@@ -40,14 +45,22 @@ make_backup() {
 
   size=$(wc -c < "$tmp")
   if [ "$size" -lt "$MIN_BYTES" ]; then
-    echo "[backup] ОШИБКА: дамп подозрительно мал ($size байт) — не сохраняю" >&2
+    echo "[backup] ОШИБКА: файл обрезан ($size байт) — не сохраняю" >&2
     rm -f "$tmp"
     return 1
   fi
 
-  # Проверяем, что архив читается целиком: битый gzip виден сразу.
+  # Архив читается целиком? Битый или недописанный gzip виден сразу.
   if ! gzip -t "$tmp"; then
-    echo "[backup] ОШИБКА: архив повреждён" >&2
+    echo "[backup] ОШИБКА: архив повреждён — не сохраняю" >&2
+    rm -f "$tmp"
+    return 1
+  fi
+
+  # В дампе есть схема приложения? Если нет — значит подключились не к той
+  # базе, и такой «бэкап» опаснее отсутствующего.
+  if ! gzip -dc "$tmp" | grep -q "CREATE TABLE public.$REQUIRE_TABLE"; then
+    echo "[backup] ОШИБКА: в дампе нет таблицы $REQUIRE_TABLE — не та база?" >&2
     rm -f "$tmp"
     return 1
   fi
