@@ -238,3 +238,10 @@ __marimo__/
 .streamlit/secrets.toml
 questions_atay.txt
 CLAUDE_CODE_PROMPT.md
+
+# --- Docker / прод ---
+backups/*
+!backups/.gitkeep
+import/*
+!import/.gitkeep
+staticfiles/

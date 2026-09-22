@@ -6,7 +6,15 @@ from django.urls import reverse_lazy
 BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config("SECRET_KEY")
 DEBUG = config("DEBUG", cast=bool)
-ALLOWED_HOSTS = ["*"]
+
+# На проде — IP сервера (домена нет). Через запятую, если адресов несколько.
+ALLOWED_HOSTS = [h.strip() for h in config("ALLOWED_HOSTS", default="*").split(",") if h.strip()]
+
+# Django требует явного списка источников для POST-форм в админке, когда
+# обращаются не по localhost. Указывать со схемой и портом: http://1.2.3.4:8000
+CSRF_TRUSTED_ORIGINS = [
+    o.strip() for o in config("CSRF_TRUSTED_ORIGINS", default="").split(",") if o.strip()
+]
 
 
 # Application definition
@@ -46,6 +54,10 @@ AUTH_USER_MODEL = "users.User"
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # WhiteNoise отдаёт статику прямо из gunicorn. Без него при DEBUG=False
+    # админка Unfold открывается «голой»: runserver статику больше не отдаёт,
+    # а отдельный nginx ради одного пользователя ставить незачем.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -126,6 +138,13 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    # Сжимает статику и добавляет хеш в имя файла — браузер не подсунет
+    # старый CSS после обновления.
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+}
 
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
