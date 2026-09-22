@@ -23,10 +23,37 @@ help: ## показать этот список
 
 # ---------- запуск ----------
 
+# Переменные, без которых окружение не поднимется.
+REQUIRED_VARS := SECRET_KEY DB_NAME DB_USER DB_PASSWORD BOT_TOKEN
+
+.PHONY: check-env
+check-env: ## проверить, что .env заполнен
+	@test -f .env || { \
+	  echo "✗ Нет файла .env"; \
+	  echo "  Создай:  cp .env.example .env   — и заполни"; exit 1; }
+	@missing=""; \
+	 for v in $(REQUIRED_VARS); do \
+	   val=$$(grep -E "^$$v=" .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '[:space:]'); \
+	   if [ -z "$$val" ] || [ "$$val" = "change-me" ]; then missing="$$missing $$v"; fi; \
+	 done; \
+	 if [ -n "$$missing" ]; then \
+	   echo "✗ В .env не заполнено:$$missing"; \
+	   echo ""; \
+	   echo "  SECRET_KEY   python3 -c \"import secrets; print(secrets.token_urlsafe(50))\""; \
+	   echo "  DB_PASSWORD  любой длинный пароль"; \
+	   echo "  DB_NAME/USER напр. saudacrm / saudacrm"; \
+	   echo "  BOT_TOKEN    от @BotFather"; \
+	   echo ""; \
+	   echo "  Без пароля PostgreSQL не стартует, и compose скажет только"; \
+	   echo "  «container is unhealthy» — поэтому проверяем заранее."; \
+	   exit 1; \
+	 fi
+	@echo "✓ .env заполнен"
+
 .PHONY: up
-up: ## собрать и поднять всё
+up: check-env ## собрать и поднять всё
 	$(DC) up -d --build
-	@echo "Готово. Админка: http://<ip-сервера>:$${WEB_PORT:-8000}/admin/"
+	@echo "Готово. Админка: http://localhost:$${WEB_PORT:-8000}/admin/"
 
 .PHONY: down
 down: ## остановить (данные и бэкапы остаются)
