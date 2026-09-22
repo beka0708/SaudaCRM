@@ -41,8 +41,11 @@ def money(value, dec=0) -> str:
     """1240000 -> '1 240 000' (Decimal форматируется напрямую, без float).
 
     `dec` — знаков после запятой (в утреннем дайджесте выручка идёт с копейками).
+    Принимает и строку: в состоянии бота суммы лежат текстом.
     """
-    return f"{value or ZERO:,.{dec}f}".replace(",", " ")
+    if not isinstance(value, Decimal):
+        value = Decimal(str(value or 0))
+    return f"{value:,.{dec}f}".replace(",", " ")
 
 
 def pct_change(current, previous):

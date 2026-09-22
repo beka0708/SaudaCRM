@@ -10,6 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from asgiref.sync import sync_to_async
 
+from apps.analytics.services import money
 from bot.keyboards import BTN_EXPENSE, categories_kb, main_menu
 from bot.states import ExpenseFSM
 
@@ -79,8 +80,8 @@ async def expense_comment(message: Message, state: FSMContext):
     balance = await _save_expense(data["category"], data["amount"], comment)
     await state.clear()
     await message.answer(
-        f"✅ Расход записан: <b>{data['amount']}</b> сом "
+        f"✅ Расход записан: <b>{money(data['amount'])} сом</b> "
         f"({_category_label(data['category'])}).\n"
-        f"💰 Касса теперь: <b>{balance}</b> сом",
+        f"💰 Касса теперь: <b>{money(balance)} сом</b>",
         reply_markup=main_menu(),
     )

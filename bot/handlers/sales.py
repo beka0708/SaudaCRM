@@ -4,6 +4,11 @@
 клиент (для реализации) → подтверждение → провести продажу.
 Продают только фасовками; цену вводит продавец (у разных клиентов разная).
 Запись — через apps.sales.services.create_sale (FIFO-списание + касса/долг атомарно).
+
+ЦЕНА ВВОДИТСЯ ЗА ШТУКУ, а количество — в фасовках, поэтому на каждом шаге
+показываем, сколько штук в фасовке, и сразу считаем сумму позиции. Без этого
+легко ввести цену за мешок и промахнуться в разы: 2 мешка по «5 000» при 50
+штуках в мешке дают не 10 000, а 500 000, и заметить это было негде.
 """
 from decimal import Decimal, InvalidOperation
 
@@ -17,13 +22,19 @@ from aiogram.types import (
 )
 from asgiref.sync import sync_to_async
 
+from apps.analytics.services import money
 from apps.catalog.services import pack_label
-from bot.keyboards import BTN_SALE, main_menu
+from bot.keyboards import BTN_SALE, main_menu, pairs_kb
 from bot.queries import get_product_info as _get_product_info
 from bot.queries import get_products as _get_products
 from bot.states import SaleFSM
 
 router = Router()
+
+
+def _line_total(packs, units, price) -> Decimal:
+    """Сумма позиции: цена задаётся ЗА ШТУКУ, а количество — в фасовках."""
+    return Decimal(int(packs) * int(units)) * Decimal(str(price))
 
 
 # --- обёртки над ORM/сервисами ---
@@ -65,22 +76,25 @@ def _finalize_sale(items, payment_type, client_id):
 
 # --- вспомогательное ---
 
-def _pairs_kb(pairs, prefix):
-    rows = [
-        [InlineKeyboardButton(text=str(label), callback_data=f"{prefix}:{val}")]
-        for val, label in pairs
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
 def _render_cart(items):
-    lines = ["🧾 <b>Корзина:</b>"]
+    """Корзина с расшифровкой: фасовки × штук × цена = сумма.
+
+    Расшифровка нужна, чтобы сразу было видно ошибку в цене: цена вводится
+    за ШТУКУ, а думают обычно в фасовках — без разбивки «2 мешка по 5 000»
+    легко прочитать как 10 000, хотя в мешке 50 штук и выйдет 500 000.
+    """
+    lines = ["🧾 <b>Корзина</b>"]
+    total = Decimal("0")
     for i, it in enumerate(items, 1):
+        s = _line_total(it["packs"], it["units"], it["price_per_unit"])
+        total += s
         lines.append(
-            f"{i}. {it['product_name']} — {it['packs']} "
-            f"{pack_label(it['pack_name'], it['packs'])} "
-            f"× {it['price_per_unit']} сом/шт"
+            f"{i}. {it['product_name']}\n"
+            f"   {it['packs']} {pack_label(it['pack_name'], it['packs'])}"
+            f" × {it['units']} шт × {money(it['price_per_unit'])} сом"
+            f" = <b>{money(s)} сом</b>"
         )
+    lines.append(f"\n<b>Итого: {money(total)} сом</b>")
     return "\n".join(lines)
 
 
@@ -91,7 +105,7 @@ async def _ask_product(cb_or_msg, state):
         return False
     await state.set_state(SaleFSM.product)
     text = "Выберите товар:"
-    kb = _pairs_kb(products, "sale_prod")
+    kb = pairs_kb(products, "sale_prod")   # в два столбца — товаров много
     if isinstance(cb_or_msg, CallbackQuery):
         await cb_or_msg.message.edit_text(text, reply_markup=kb)
     else:
@@ -131,11 +145,16 @@ async def sale_product(cb: CallbackQuery, state: FSMContext):
     pid = int(cb.data.split(":")[1])
     info = await _get_product_info(pid)
     await state.update_data(
-        cur_product_id=info["id"], cur_product_name=info["name"], cur_pack_name=info["pack_name"]
+        cur_product_id=info["id"], cur_product_name=info["name"],
+        cur_pack_name=info["pack_name"], cur_units=info["units"],
     )
     await state.set_state(SaleFSM.quantity)
+    # Формулировки подобраны так, чтобы не склонять фасовку по падежам:
+    # «1 мешок = 50 шт» — именительный, «Сколько мешков?» — форма мн.ч.
     await cb.message.edit_text(
-        f"Товар: <b>{info['name']}</b>\nСколько {info['pack_name']} (фасовок)? Введите число:"
+        f"Товар: <b>{info['name']}</b>\n"
+        f"1 {pack_label(info['pack_name'], 1)} = {info['units']} шт\n\n"
+        f"Сколько {pack_label(info['pack_name'], 5)}? Введите число:"
     )
     await cb.answer()
 
@@ -150,10 +169,14 @@ async def sale_quantity(message: Message, state: FSMContext):
     await state.update_data(cur_packs=packs)
     await state.set_state(SaleFSM.price)
     data = await state.get_data()
+    units = int(data["cur_units"])
+    # Прямо называем, что цена ЗА ШТУКУ, и напоминаем, сколько их в фасовке:
+    # именно на этом шаге чаще всего вводят цену за мешок и ошибаются в разы.
     await message.answer(
         f"{data['cur_product_name']}: {packs} "
-        f"{pack_label(data['cur_pack_name'], packs)}.\n"
-        f"Цена за штуку (сом)?"
+        f"{pack_label(data['cur_pack_name'], packs)} = {packs * units} шт\n\n"
+        f"Цена <b>за 1 ШТУКУ</b> (сом)?\n"
+        f"<i>⚠️ не за фасовку: 1 {pack_label(data['cur_pack_name'], 1)} = {units} шт</i>"
     )
 
 
@@ -174,6 +197,7 @@ async def sale_price(message: Message, state: FSMContext):
         "product_id": data["cur_product_id"],
         "product_name": data["cur_product_name"],
         "pack_name": data["cur_pack_name"],
+        "units": int(data["cur_units"]),
         "packs": data["cur_packs"],
         "price_per_unit": str(price),
     })
@@ -220,7 +244,8 @@ async def sale_payment(cb: CallbackQuery, state: FSMContext):
             await cb.answer()
             return
         await state.set_state(SaleFSM.client)
-        await cb.message.edit_text("Выберите клиента:", reply_markup=_pairs_kb(clients, "sale_client"))
+        await cb.message.edit_text(
+            "Выберите клиента:", reply_markup=pairs_kb(clients, "sale_client"))
     else:
         await state.update_data(client_id=None, client_name=None)
         await _show_confirm(cb, state)
@@ -249,12 +274,12 @@ async def sale_confirm_yes(cb: CallbackQuery, state: FSMContext):
         return
 
     msg = (
-        f"✅ Продажа #{result['id']} оформлена.\n"
-        f"Сумма: <b>{result['total']}</b> сом ({result['payment']})\n"
-        f"💰 Касса: <b>{result['balance']}</b> сом"
+        f"✅ Продажа #{result['id']} оформлена\n\n"
+        f"Сумма: <b>{money(result['total'])} сом</b> ({result['payment']})\n"
+        f"💰 Касса: <b>{money(result['balance'])} сом</b>"
     )
     if result.get("client_debt") is not None:
-        msg += f"\n📦 Долг клиента: <b>{result['client_debt']}</b> сом"
+        msg += f"\n📦 Долг клиента: <b>{money(result['client_debt'])} сом</b>"
     await cb.message.edit_text(msg)
     await cb.message.answer("Готово 👍", reply_markup=main_menu())
     await cb.answer()

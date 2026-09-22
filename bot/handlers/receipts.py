@@ -16,8 +16,9 @@ from aiogram.types import (
 )
 from asgiref.sync import sync_to_async
 
+from apps.analytics.services import money
 from apps.catalog.services import pack_label
-from bot.keyboards import BTN_RECEIPT, main_menu
+from bot.keyboards import BTN_RECEIPT, main_menu, pairs_kb
 from bot.queries import get_product_info as _get_product_info
 from bot.queries import get_products as _get_products
 from bot.states import ReceiptFSM
@@ -57,14 +58,21 @@ def _finalize_receipt(data):
 
 
 def _products_kb(products):
-    rows = [[InlineKeyboardButton(text=name, callback_data=f"rcpt_prod:{pid}")] for pid, name in products]
-    rows.append([InlineKeyboardButton(text="➕ Новый товар", callback_data="rcpt_prod:new")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    # В два столбца — товаров много, одним списком занимают весь экран.
+    # Кнопка «Новый товар» отдельной строкой внизу, чтобы не нажать случайно.
+    return pairs_kb(
+        products, "rcpt_prod",
+        extra=[InlineKeyboardButton(text="➕ Новый товар", callback_data="rcpt_prod:new")],
+    )
 
 
-async def _ask_packs(message_or_cb, state, product_name, pack_name):
+async def _ask_packs(message_or_cb, state, product_name, pack_name, units):
     await state.set_state(ReceiptFSM.packs)
-    text = f"Приход: <b>{product_name}</b>\nСколько {pack_name} (фасовок) пришло?"
+    text = (
+        f"Приход: <b>{product_name}</b>\n"
+        f"1 {pack_label(pack_name, 1)} = {units} шт\n\n"
+        f"Сколько {pack_label(pack_name, 5)} пришло?"
+    )
     if isinstance(message_or_cb, CallbackQuery):
         await message_or_cb.message.edit_text(text)
     else:
@@ -99,7 +107,7 @@ async def receipt_product(cb: CallbackQuery, state: FSMContext):
         new=False, product_id=info["id"], product_name=info["name"],
         pack_name=info["pack_name"], units=info["units"],
     )
-    await _ask_packs(cb, state, info["name"], info["pack_name"])
+    await _ask_packs(cb, state, info["name"], info["pack_name"], info["units"])
     await cb.answer()
 
 
@@ -134,7 +142,7 @@ async def receipt_new_units(message: Message, state: FSMContext):
         return
     await state.update_data(units=units)
     data = await state.get_data()
-    await _ask_packs(message, state, data["name"], data["pack_name"])
+    await _ask_packs(message, state, data["name"], data["pack_name"], data["units"])
 
 
 @router.message(ReceiptFSM.packs)
@@ -146,7 +154,16 @@ async def receipt_packs(message: Message, state: FSMContext):
         return
     await state.update_data(packs=packs)
     await state.set_state(ReceiptFSM.cost)
-    await message.answer("Себестоимость за штуку (сом)?")
+    data = await state.get_data()
+    units = int(data["units"])
+    pack = data["pack_name"]
+    # Как и в продаже: себестоимость вводится ЗА ШТУКУ, поэтому явно
+    # напоминаем, сколько их в фасовке, и показываем итог.
+    await message.answer(
+        f"{packs} {pack_label(pack, packs)} = {packs * units} шт\n\n"
+        f"Себестоимость <b>за 1 ШТУКУ</b> (сом)?\n"
+        f"<i>⚠️ не за фасовку: 1 {pack_label(pack, 1)} = {units} шт</i>"
+    )
 
 
 @router.message(ReceiptFSM.cost)
@@ -169,11 +186,13 @@ async def receipt_cost(message: Message, state: FSMContext):
         InlineKeyboardButton(text="❌ Отмена", callback_data="rcpt_ok:no"),
     ]])
     name = data.get("name") or data.get("product_name")
+    units = int(data["units"])
     await message.answer(
-        f"Приход: <b>{name}</b>\n"
-        f"{data['packs']} {pack_label(data['pack_name'], data['packs'])} "
-        f"× {cost} сом/шт\n"
-        f"💸 Закупка: <b>{purchase}</b> сом (спишется из кассы)\n\nПодтвердить?",
+        f"Приход: <b>{name}</b>\n\n"
+        f"{data['packs']} {pack_label(data['pack_name'], data['packs'])}"
+        f" × {units} шт × {money(cost)} сом"
+        f" = <b>{money(purchase)} сом</b>\n\n"
+        f"💸 Спишется из кассы: <b>{money(purchase)} сом</b>\n\nПодтвердить?",
         reply_markup=kb,
     )
 
@@ -189,11 +208,13 @@ async def receipt_confirm(cb: CallbackQuery, state: FSMContext):
         await cb.answer()
         return
     await cb.message.edit_text(
-        f"✅ Приход оформлен: <b>{result['name']}</b> +{result['packs']} "
+        f"✅ Приход оформлен: <b>{result['name']}</b>\n\n"
+        f"📦 Пришло: +{result['packs']} "
         f"{pack_label(result['pack_name'], result['packs'])}\n"
-        f"📦 Остаток: <b>{result['stock']}</b> "
-        f"{pack_label(result['pack_name'], result['stock'])}\n"
-        f"💸 Закупка: {result['purchase']} сом · 💰 Касса: <b>{result['balance']}</b> сом"
+        f"📦 Остаток: <b>{result['stock']} "
+        f"{pack_label(result['pack_name'], result['stock'])}</b>\n"
+        f"💸 Закупка: {money(result['purchase'])} сом\n"
+        f"💰 Касса: <b>{money(result['balance'])} сом</b>"
     )
     await cb.message.answer("Готово 👍", reply_markup=main_menu())
     await cb.answer()

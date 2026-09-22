@@ -10,6 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from asgiref.sync import sync_to_async
 
+from apps.analytics.services import money
 from bot.keyboards import BTN_DEBT, main_menu, pairs_kb
 from bot.states import DebtPaymentFSM
 
@@ -24,7 +25,7 @@ def _get_debtors():
     for c in Client.objects.all():
         debt = c.current_debt
         if debt > 0:
-            result.append((c.id, f"{c.name} — долг {debt}"))
+            result.append((c.id, f"{c.name} — {money(debt)} сом"))
     return result
 
 
@@ -60,7 +61,9 @@ async def debt_start(message: Message, state: FSMContext):
         return
     await state.clear()
     await state.set_state(DebtPaymentFSM.client)
-    await message.answer("Кто оплачивает долг?", reply_markup=pairs_kb(debtors, "pay_client"))
+    # Один столбец: подпись «Имя — 311 960 сом» в два столбца не помещается.
+    await message.answer(
+        "Кто оплачивает долг?", reply_markup=pairs_kb(debtors, "pay_client", columns=1))
 
 
 @router.callback_query(DebtPaymentFSM.client, F.data.startswith("pay_client:"))
@@ -70,7 +73,7 @@ async def debt_client(cb: CallbackQuery, state: FSMContext):
     await state.update_data(client_id=cid)
     await state.set_state(DebtPaymentFSM.amount)
     await cb.message.edit_text(
-        f"Текущий долг: <b>{debt}</b> сом.\nВведите сумму оплаты:"
+        f"Текущий долг: <b>{money(debt)} сом</b>\n\nВведите сумму оплаты:"
     )
     await cb.answer()
 
@@ -91,9 +94,9 @@ async def debt_amount(message: Message, state: FSMContext):
     await state.clear()
 
     msg = (
-        f"✅ Оплата принята: <b>{result['applied']}</b> сом.\n"
-        f"Остаток долга ({result['client']}): <b>{result['debt']}</b> сом\n"
-        f"💰 Касса: <b>{result['balance']}</b> сом"
+        f"✅ Оплата принята: <b>{money(result['applied'])} сом</b>\n\n"
+        f"Остаток долга ({result['client']}): <b>{money(result['debt'])} сом</b>\n"
+        f"💰 Касса: <b>{money(result['balance'])} сом</b>"
     )
     if result["applied"] < amount:
         msg += "\n\n⚠️ Сумма больше долга — лишнее не учтено."
