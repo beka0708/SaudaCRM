@@ -39,7 +39,12 @@ services:
       # в списке товаров и в отчётах. Менять потом = пересоздавать базу.
       POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # ВАЖНО: для PostgreSQL 18+ том монтируется в /var/lib/postgresql,
+      # а НЕ в /var/lib/postgresql/data, как было до 18-й версии. Образ сам
+      # положит данные в подпапку с номером версии — это нужно, чтобы потом
+      # можно было обновляться через pg_upgrade. Со старым путём контейнер
+      # не стартует и ругается «data in /var/lib/postgresql/data (unused mount)».
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s

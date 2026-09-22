@@ -143,3 +143,30 @@ make digest           # отправить дайджест сейчас
 Решать вам; по умолчанию порт открыт, потому что Атаю нужен доступ с телефона.
 
 **База наружу не торчит** — у сервиса `db` нет проброшенных портов, доступ только изнутри и через `make psql`.
+
+**Том базы монтируется в `/var/lib/postgresql`**, а не в `/var/lib/postgresql/data`. В PostgreSQL 18 раскладку поменяли: образ сам кладёт данные в подпапку с номером версии, чтобы потом работал `pg_upgrade`. Со старым путём контейнер не стартует и пишет «data in /var/lib/postgresql/data (unused mount/volume)».
+
+---
+
+## 7. Если что-то не поднимается
+
+```bash
+docker compose logs db      # база
+docker compose logs web     # приложение
+docker compose ps           # кто упал
+```
+
+| Симптом | Причина |
+|---|---|
+| `container saudacrm-db-1 is unhealthy` | чаще всего пустой `DB_PASSWORD` в `.env` — ловится через `make check-env` |
+| `data in /var/lib/postgresql/data (unused mount/volume)` | старый путь тома, см. выше |
+| Админка без стилей | `DEBUG=True` или не отработал `collectstatic` — смотри логи `web` |
+| Бот молчит, в логах `Conflict` | запущено два экземпляра бота: контейнер и вручную |
+
+После правки `.env` или раскладки томов базу нужно пересоздать:
+
+```bash
+docker compose down -v && make up
+```
+
+`-v` удаляет тома. **На проде так делать нельзя** — это сотрёт базу; там сначала `make backup`.
