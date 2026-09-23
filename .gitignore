@@ -245,3 +245,7 @@ backups/*
 import/*
 !import/.gitkeep
 staticfiles/
+
+# Рабочие материалы — нужны локально, но не в продовом репозитории
+Tasks.mk
+questions_atay_2.txt
