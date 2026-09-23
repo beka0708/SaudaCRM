@@ -1,5 +1,32 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
+*.py[cod]
+*.egg-info/
+.Python
+
+# Virtualenv / uv
+.venv/
+venv/
+
+# Django
+*.log
+db.sqlite3
+db.sqlite3-journal
+/media/
+/staticfiles/
+
+# Secrets
+.env
+*.env
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Byte-compiled / optimized / DLL files
 *.py[codz]
 *$py.class
 
@@ -7,7 +34,6 @@ __pycache__/
 *.so
 
 # Distribution / packaging
-.Python
 build/
 develop-eggs/
 dist/
@@ -21,7 +47,6 @@ sdist/
 var/
 wheels/
 share/python-wheels/
-*.egg-info/
 .installed.cfg
 *.egg
 MANIFEST
@@ -56,10 +81,7 @@ cover/
 *.pot
 
 # Django stuff:
-*.log
 local_settings.py
-db.sqlite3
-db.sqlite3-journal
 
 # Flask stuff:
 instance/
@@ -148,11 +170,9 @@ activemq-data/
 *.sage.py
 
 # Environments
-.env
 .envrc
 .venv
 env/
-venv/
 ENV/
 env.bak/
 venv.bak/
@@ -195,9 +215,9 @@ cython_debug/
 .abstra/
 
 # Visual Studio Code
-#   Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore 
+#   Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore
 #   that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
-#   and can be added to the global gitignore or merged into this file. However, if you prefer, 
+#   and can be added to the global gitignore or merged into this file. However, if you prefer,
 #   you could uncomment the following to ignore the entire vscode folder
 # .vscode/
 # Temporary file for partial code execution
@@ -216,3 +236,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+questions_atay.txt
+CLAUDE_CODE_PROMPT.md
+
+# --- Docker / прод ---
+backups/*
+!backups/.gitkeep
+import/*
+!import/.gitkeep
+staticfiles/
+
+# Рабочие материалы — нужны локально, но не в продовом репозитории
+Tasks.mk
+questions_atay_2.txt

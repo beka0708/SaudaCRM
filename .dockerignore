@@ -1,0 +1,27 @@
+# Что НЕ попадает в образ.
+.git
+.gitignore
+.idea
+.venv
+venv
+__pycache__
+*.py[cod]
+*.egg-info
+
+# Секреты — приходят через env_file на сервере, в образе им не место.
+.env
+*.env
+!.env.example
+
+# Данные и выгрузки
+db.sqlite3
+backups/
+import/
+media/
+staticfiles/
+*.xlsx
+
+# Документы и заметки разработки
+*.md
+Tasks.mk
+questions_atay*.txt

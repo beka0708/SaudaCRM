@@ -1,0 +1,93 @@
+# Прод-окружение SaudaCRM: VPS без домена и HTTPS, один пользователь.
+#
+# Сервисы:
+#   db      — PostgreSQL с данными на именованном томе
+#   web     — Django под gunicorn, статику отдаёт whitenoise
+#   bot     — Telegram-бот (manage.py runbot), отдельный процесс
+#   cron    — утренний дайджест в 9:00
+#   backup  — ежедневный дамп базы с ротацией и проверкой
+#
+# Команды — через Makefile: make up / logs / backup / import и т.д.
+
+x-app: &app
+  build: .
+  image: saudacrm:latest
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    DB_HOST: db
+    DB_PORT: "5432"
+  volumes:
+    - media:/app/media
+    # Сюда кладём .xlsx для разового импорта — без пересборки образа.
+    - ./import:/import:ro
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      # ВАЖНО: locale C. В en_US.UTF-8 русские названия с пробелом
+      # («Масло растительное») сортируются после «тест» — ломается порядок
+      # в списке товаров и в отчётах. Менять потом = пересоздавать базу.
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    volumes:
+      # ВАЖНО: для PostgreSQL 18+ том монтируется в /var/lib/postgresql,
+      # а НЕ в /var/lib/postgresql/data, как было до 18-й версии. Образ сам
+      # положит данные в подпапку с номером версии — это нужно, чтобы потом
+      # можно было обновляться через pg_upgrade. Со старым путём контейнер
+      # не стартует и ругается «data in /var/lib/postgresql/data (unused mount)».
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # Наружу порт НЕ открываем: база доступна только контейнерам.
+    # Для psql с хоста есть `make psql`.
+
+  web:
+    <<: *app
+    command: ["web"]
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    volumes:
+      - media:/app/media
+      - ./import:/import:ro
+      - static:/app/staticfiles
+
+  bot:
+    <<: *app
+    command: ["bot"]
+
+  cron:
+    <<: *app
+    command: ["cron"]
+
+  backup:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_HOST: db
+    entrypoint: ["/backup.sh"]
+    volumes:
+      - ./docker/backup.sh:/backup.sh:ro
+      # Бэкапы лежат в папке проекта, а не в томе: их видно с хоста и
+      # легко забрать по scp.
+      - ./backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  media:
+  static:

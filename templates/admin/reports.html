@@ -1,0 +1,52 @@
+{% extends "unfold/layouts/base_simple.html" %}
+{% load i18n unfold %}
+
+{% block title %}Отчёты | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block content %}
+<style>
+  .rp-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 14px; padding: 24px; max-width: 620px; }
+  .dark .rp-card { background: rgb(var(--color-base-900)); border-color: rgb(var(--color-base-800)); }
+  .rp-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .rp-title { font-weight: 700; font-size: 15px; color: #374151; } .dark .rp-title { color: #e5e7eb; }
+  .rp-sub { font-size: 12px; color: #94a3b8; margin-bottom: 18px; }
+  .rp-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: end; }
+  .rp-field label { display: block; font-size: 12px; color: #6b7280; margin-bottom: 4px; }
+  .dark .rp-field label { color: #9ca3af; }
+  .rp-field input { border: 1px solid #d1d5db; border-radius: 8px; padding: 8px 10px; font-size: 14px; background: #fff; }
+  .dark .rp-field input { background: rgb(var(--color-base-800)); border-color: rgb(var(--color-base-700)); color: #e5e7eb; }
+  .rp-btn { display: inline-flex; align-items: center; gap: 8px; background: #10b981; color: #fff; border: 0;
+            border-radius: 8px; padding: 10px 18px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s; }
+  .rp-btn:hover { background: #059669; }
+  .rp-list { margin-top: 20px; font-size: 13px; color: #6b7280; } .dark .rp-list { color: #9ca3af; }
+  .rp-list li { margin: 3px 0; }
+</style>
+
+<h1 class="text-xl font-semibold text-important mb-4">Отчёты</h1>
+
+<div class="rp-card">
+  <div class="rp-head">
+    <span class="material-symbols-outlined" style="color:#10b981">description</span>
+    <span class="rp-title">Сводный отчёт за период</span>
+  </div>
+  <div class="rp-sub">Один Excel-файл с листами: сводка, продажи, оплаты долгов, расходы, остатки склада, ТОП товаров, долги клиентов.</div>
+
+  <form method="get" action="{% url 'reports' %}" class="rp-row">
+    <div class="rp-field">
+      <label for="start">Период с</label>
+      <input type="date" id="start" name="start" value="{{ default_start }}">
+    </div>
+    <div class="rp-field">
+      <label for="end">по</label>
+      <input type="date" id="end" name="end" value="{{ default_end }}">
+    </div>
+    <button type="submit" name="download" value="1" class="rp-btn">
+      <span class="material-symbols-outlined" style="font-size:18px">download</span> Скачать Excel
+    </button>
+  </form>
+
+  <ul class="rp-list">
+    <li>Также быстрый экспорт доступен на списках в админке — действие «Экспорт в Excel».</li>
+  </ul>
+</div>
+{% endblock %}
