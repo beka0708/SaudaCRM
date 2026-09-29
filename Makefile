@@ -149,6 +149,17 @@ import-apply: ## ЗАПИСАТЬ импорт: make import-apply FILE=табл�
 	@$(MAKE) --no-print-directory backup
 	$(RUN) python manage.py import_excel "/import/$(FILE)" --apply
 
+.PHONY: reset-data
+reset-data: ## СТЕРЕТЬ бизнес-данные перед повторным импортом (users сохранятся)
+	@echo "Что сейчас в базе:"
+	@$(RUN) python manage.py reset_business_data
+	@echo ""
+	@echo "!!! Это удалит ВСЕ товары, продажи, долги и кассу."
+	@read -p "Введите БОЛЬШИМИ буквами СТЕРЕТЬ: " a; [ "$$a" = "СТЕРЕТЬ" ] || { echo "Отменено"; exit 1; }
+	@echo "Снимаю бэкап перед очисткой…"
+	@$(MAKE) --no-print-directory backup
+	$(RUN) python manage.py reset_business_data --yes
+
 .PHONY: import-clean
 import-clean: ## удалить файлы импорта с сервера
 	rm -fv import/*.xlsx
