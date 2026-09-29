@@ -136,18 +136,18 @@ digest: ## отправить дайджест прямо сейчас
 # Импорт рассчитан на ПУСТУЮ базу и делается один раз.
 
 .PHONY: import
-import: ## предпросмотр импорта: make import FILE=таблица.xlsx
+import: ## предпросмотр импорта: make import FILE=таблица.xlsx [CASH=сумма]
 	@test -n "$(FILE)" || { echo "Укажи файл: make import FILE=таблица.xlsx"; exit 1; }
 	@test -f "import/$(FILE)" || { echo "Нет файла import/$(FILE)"; exit 1; }
-	$(RUN) python manage.py import_excel "/import/$(FILE)"
+	$(RUN) python manage.py import_excel "/import/$(FILE)" $(if $(CASH),--cash $(CASH))
 
 .PHONY: import-apply
-import-apply: ## ЗАПИСАТЬ импорт: make import-apply FILE=таблица.xlsx
+import-apply: ## ЗАПИСАТЬ импорт: make import-apply FILE=таблица.xlsx [CASH=сумма]
 	@test -n "$(FILE)" || { echo "Укажи файл: make import-apply FILE=таблица.xlsx"; exit 1; }
 	@test -f "import/$(FILE)" || { echo "Нет файла import/$(FILE)"; exit 1; }
 	@echo "Снимаю бэкап перед импортом…"
 	@$(MAKE) --no-print-directory backup
-	$(RUN) python manage.py import_excel "/import/$(FILE)" --apply
+	$(RUN) python manage.py import_excel "/import/$(FILE)" --apply $(if $(CASH),--cash $(CASH))
 
 .PHONY: reset-data
 reset-data: ## СТЕРЕТЬ бизнес-данные перед повторным импортом (users сохранятся)

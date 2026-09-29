@@ -144,6 +144,10 @@ class Command(BaseCommand):
                        help="записать в БД (без ключа — только предпросмотр)")
         p.add_argument("--since", default=SINCE_DEFAULT.isoformat(),
                        help=f"импортировать историю с этой даты (по умолч. {SINCE_DEFAULT})")
+        p.add_argument("--cash", type=Decimal, default=None,
+                       help="фактический остаток кассы. По умолчанию берётся строка "
+                            "«На счету» из таблицы, но она заполняется ВРУЧНУЮ и "
+                            "часто отстаёт — тогда задайте реальную сумму здесь.")
 
     def handle(self, *args, **o):
         from openpyxl import load_workbook
@@ -162,6 +166,9 @@ class Command(BaseCommand):
         ]}
 
         plan = self.build_plan(sheets, since)
+        if o.get("cash") is not None:
+            plan["cash_from_sheet"] = plan["cash_now"]
+            plan["cash_now"] = o["cash"]
         self.report(plan, since)
 
         if not o["apply"]:
@@ -338,7 +345,11 @@ class Command(BaseCommand):
           f"(пропущено мусорных строк: {plan['sales_skipped']})")
         w(f"  оплат долгов:         {len(plan['payments'])}")
         w(f"  расходов:             {len(plan['expenses'])}")
-        w(f"  входящая касса:       {plan['cash_now']:,.0f} сом")
+        if "cash_from_sheet" in plan:
+            w(f"  входящая касса:       {plan['cash_now']:,.0f} сом  "
+              f"(задана вручную; в таблице {plan['cash_from_sheet']:,.0f})")
+        else:
+            w(f"  входящая касса:       {plan['cash_now']:,.0f} сом  (строка «На счету»)")
 
         w(self.style.MIGRATE_HEADING("\nСВЕРКА С ИХ ЛИСТОМ «Показатели»"))
         by_month = defaultdict(lambda: {"revenue": Decimal(0), "cogs": Decimal(0)})
