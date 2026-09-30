@@ -4,6 +4,8 @@ from django.db.models import Sum
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin
 
+from apps.core.admin import ActiveFilter
+
 from .models import Product
 from .services import stock_breakdown
 
@@ -11,7 +13,7 @@ from .services import stock_breakdown
 @admin.register(Product)
 class ProductAdmin(ModelAdmin):
     list_display = ("name", "pack_name", "units_per_pack", "stock_display", "is_active")
-    list_filter = ("is_active",)
+    list_filter = (ActiveFilter,)
     search_fields = ("name",)
     fields = ("name", "base_unit", "pack_name", "units_per_pack", "low_stock_threshold", "is_active")
 

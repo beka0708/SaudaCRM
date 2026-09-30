@@ -10,9 +10,9 @@ from .models import CashFlow
 
 @admin.register(CashFlow)
 class CashFlowAdmin(LedgerDocumentMixin, ModelAdmin):
-    list_display = ("date", "direction_display", "category", "amount", "comment")
-    list_filter = ("direction", "category", "date")
-    search_fields = ("comment",)
+    list_display = ("date", "direction_display", "category", "subcategory", "amount", "comment")
+    list_filter = ("direction", "category", "subcategory", "date")
+    search_fields = ("comment", "subcategory")
     date_hierarchy = "date"
     autocomplete_fields = ("sale", "debt_payment")
     readonly_fields = ("created_at",)

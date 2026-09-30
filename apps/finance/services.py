@@ -27,13 +27,57 @@ INCOME_CATEGORIES = [
     CashFlow.Category.OTHER_IN,
 ]
 
+# --- Статьи расходов (список заказчика) ---------------------------------
+# Это то, что человек выбирает кнопкой в боте. Каждая статья ложится на
+# укрупнённую Category: по ней считаются касса и прибыль, а сама статья
+# пишется в CashFlow.subcategory — по ней потом можно фильтровать.
+#
+# ВАЖНО: личные расходы Атая укрупнённо всегда PERSONAL. Они уменьшают
+# кассу, но НЕ входят в расходы бизнеса и не уменьшают прибыль
+# (см. analytics.services.operating_expenses).
+
+COMPANY_EXPENSE_ITEMS = [
+    ("Сушняк", CashFlow.Category.OTHER_OUT),
+    ("Топливо", CashFlow.Category.DELIVERY),
+    ("Питание", CashFlow.Category.OTHER_OUT),
+    ("ЗП Грузчикам", CashFlow.Category.SALARY),
+    ("Стоянка", CashFlow.Category.DELIVERY),
+    ("Амморт", CashFlow.Category.DELIVERY),
+    ("Домой", CashFlow.Category.OTHER_OUT),
+    ("ЗП Исмаила", CashFlow.Category.SALARY),
+]
+
+PERSONAL_EXPENSE_ITEMS = [
+    ("Питание", CashFlow.Category.PERSONAL),
+    ("Топливо", CashFlow.Category.PERSONAL),
+    ("Благотвор", CashFlow.Category.PERSONAL),
+    ("Авто", CashFlow.Category.PERSONAL),
+    ("Шоппинг", CashFlow.Category.PERSONAL),
+    ("Развлечение", CashFlow.Category.PERSONAL),
+    ("Здоровье", CashFlow.Category.PERSONAL),
+    ("Домой", CashFlow.Category.PERSONAL),
+    ("Такси", CashFlow.Category.PERSONAL),
+    ("Мойка", CashFlow.Category.PERSONAL),
+    ("Сушняк", CashFlow.Category.PERSONAL),
+]
+
+
+def expense_category_for(item_name, personal=False):
+    """Укрупнённая категория для статьи расхода. Незнакомая → «прочее»."""
+    items = PERSONAL_EXPENSE_ITEMS if personal else COMPANY_EXPENSE_ITEMS
+    for name, cat in items:
+        if name == item_name:
+            return cat
+    return CashFlow.Category.PERSONAL if personal else CashFlow.Category.OTHER_OUT
+
 
 def _dec(value) -> Decimal:
     return Decimal(str(value))
 
 
 def record_cash_flow(
-    direction, category, amount, date=None, comment="", sale=None, debt_payment=None
+    direction, category, amount, date=None, comment="", sale=None, debt_payment=None,
+    subcategory="",
 ):
     """Записать движение денег. Нулевые/отрицательные суммы игнорируем."""
     amount = _dec(amount)
@@ -45,6 +89,7 @@ def record_cash_flow(
         amount=amount,
         date=date or timezone.localdate(),
         comment=comment,
+        subcategory=subcategory,
         sale=sale,
         debt_payment=debt_payment,
     )
@@ -113,6 +158,9 @@ def record_debt_payment_income(payment):
     )
 
 
-def add_expense(category, amount, date=None, comment=""):
+def add_expense(category, amount, date=None, comment="", subcategory=""):
     """Удобная запись расхода."""
-    return record_cash_flow(CashFlow.Direction.OUT, category, amount, date=date, comment=comment)
+    return record_cash_flow(
+        CashFlow.Direction.OUT, category, amount,
+        date=date, comment=comment, subcategory=subcategory,
+    )

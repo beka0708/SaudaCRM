@@ -17,6 +17,10 @@ x-app: &app
   environment:
     DB_HOST: db
     DB_PORT: "5432"
+    # Контейнеры по умолчанию живут в UTC, а Бишкек — UTC+6. Из-за этого
+    # планировщик дайджеста слал его в 15:00 по местному вместо 9:00:
+    # Django знал про Asia/Bishkek, а системный `date` в cron.sh — нет.
+    TZ: ${TZ:-Asia/Bishkek}
   volumes:
     - media:/app/media
     # Сюда кладём .xlsx для разового импорта — без пересборки образа.
@@ -77,6 +81,7 @@ services:
     env_file: .env
     environment:
       DB_HOST: db
+      TZ: ${TZ:-Asia/Bishkek}
     entrypoint: ["/backup.sh"]
     volumes:
       - ./docker/backup.sh:/backup.sh:ro

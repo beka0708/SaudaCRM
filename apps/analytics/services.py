@@ -333,6 +333,75 @@ def month_indicators(start, end):
     }
 
 
+def monthly_breakdown(months=12):
+    """Помесячная таблица «Анализ наших работ» — как в Excel у заказчика.
+
+    Колонки: выручка, себестоимость, расходы, чистый доход, продано под
+    реализацию, возвращено по реализации + четыре процента.
+
+    Смысл процентов (по их формулам):
+      расходы      — какую долю выручки съели расходы;
+      рентабельность — чистый доход к выручке;
+      возвратности — сколько вернули денег к тому, что отдали под реализацию
+                     (больше 100% = гасят старые долги, меньше = копят);
+      под реал     — какая доля выручки ушла в долг, а не деньгами.
+    """
+    from apps.debts.models import DebtPayment
+    from apps.sales.models import Sale
+
+    today_ = today()
+    rows = []
+    cursor = today_.replace(day=1)
+    for _ in range(months):
+        start = cursor
+        end = min(_month_end(start), today_)
+        if start > today_:
+            cursor = _prev_month(cursor)
+            continue
+
+        m = month_indicators(start, end)
+        sold_debt = (
+            Sale.objects.active()
+            .filter(created_at__date__gte=start, created_at__date__lte=end,
+                    payment_type=Sale.PaymentType.DEBT)
+            .aggregate(s=Sum("total"))["s"] or ZERO
+        )
+        returned = (
+            DebtPayment.objects.filter(
+                created_at__date__gte=start, created_at__date__lte=end,
+                is_reversed=False, debt__is_reversed=False)
+            .aggregate(s=Sum("amount"))["s"] or ZERO
+        )
+        rev = m["revenue"]
+        pct = lambda a, b: float(a / b * 100) if b else 0.0  # noqa: E731
+        rows.append({
+            "month": start,
+            "label": f"{_MONTHS_RU[start.month - 1]} {start.year}",
+            "revenue": rev, "cogs": m["cogs"], "expenses": m["expenses"],
+            "profit": m["profit"], "sold_debt": sold_debt, "returned": returned,
+            "pct_expenses": pct(m["expenses"], rev),
+            "pct_margin": pct(m["profit"], rev),
+            "pct_returned": pct(returned, sold_debt),
+            "pct_debt": pct(sold_debt, rev),
+        })
+        cursor = _prev_month(cursor)
+    return rows
+
+
+_MONTHS_RU = (
+    "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+    "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+)
+
+
+def _month_end(d):
+    return (d.replace(day=1) + timedelta(days=31)).replace(day=1) - timedelta(days=1)
+
+
+def _prev_month(d):
+    return (d.replace(day=1) - timedelta(days=1)).replace(day=1)
+
+
 def stock_report():
     """Остатки всех товаров: фасовки + стоимость по себестоимости. Один запрос."""
     from apps.catalog.services import pack_label
