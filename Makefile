@@ -149,6 +149,14 @@ import-apply: ## ЗАПИСАТЬ импорт: make import-apply FILE=табл�
 	@$(MAKE) --no-print-directory backup
 	$(RUN) python manage.py import_excel "/import/$(FILE)" --apply $(if $(CASH),--cash $(CASH))
 
+.PHONY: fix-revenue
+fix-revenue: ## починить выручку позиций по суммам продаж (разово)
+	@$(RUN) python manage.py fix_saleitem_revenue
+	@echo ""
+	@read -p "Применить? (введите ДА): " a; [ "$$a" = "ДА" ] || { echo "Отменено"; exit 1; }
+	@$(MAKE) --no-print-directory backup
+	$(RUN) python manage.py fix_saleitem_revenue --yes
+
 .PHONY: reset-data
 reset-data: ## СТЕРЕТЬ бизнес-данные перед повторным импортом (users сохранятся)
 	@echo "Что сейчас в базе:"
