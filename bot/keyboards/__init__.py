@@ -11,20 +11,43 @@ BTN_SALE = "🧾 Продажа"
 BTN_RECEIPT = "📥 Приход"
 BTN_DEBT = "💰 Оплата долга"
 BTN_EXPENSE = "➖ Расход"
+BTN_PERSONAL = "🧍 Личный расход"
 BTN_UNDO = "↩️ Отменить"
+
+# Кнопка «свой вариант» — общая для списков клиентов и статей расходов.
+CB_OTHER = "other"
 
 
 def main_menu() -> ReplyKeyboardMarkup:
-    # Четыре ежедневных сценария сверху, отмена — отдельной строкой ниже:
-    # ею пользуются редко, и случайно нажать её не должно быть легко.
+    # Четыре ежедневных сценария сверху. Личный расход отделён от расхода
+    # компании: он не входит в расходы бизнеса и не уменьшает прибыль,
+    # поэтому и кнопка отдельная, чтобы не путать при вводе.
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=BTN_SALE), KeyboardButton(text=BTN_RECEIPT)],
             [KeyboardButton(text=BTN_DEBT), KeyboardButton(text=BTN_EXPENSE)],
-            [KeyboardButton(text=BTN_UNDO)],
+            [KeyboardButton(text=BTN_PERSONAL), KeyboardButton(text=BTN_UNDO)],
         ],
         resize_keyboard=True,
     )
+
+
+def items_kb(names, prefix: str, columns: int = 2, with_other: bool = True,
+             other_text: str = "✏️ Свой вариант") -> InlineKeyboardMarkup:
+    """Клавиатура из названий (статьи расходов и т.п.) + «свой вариант».
+
+    callback = f"{prefix}:{индекс}" — не само название: в callback_data
+    Telegram даёт всего 64 байта, а кириллица занимает по 2 байта на символ.
+    """
+    buttons = [
+        InlineKeyboardButton(text=str(n), callback_data=f"{prefix}:{i}")
+        for i, n in enumerate(names)
+    ]
+    rows = [buttons[i:i + columns] for i in range(0, len(buttons), columns)]
+    if with_other:
+        rows.append([InlineKeyboardButton(text=other_text,
+                                          callback_data=f"{prefix}:{CB_OTHER}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def pairs_kb(pairs, prefix: str, columns: int = 2, extra=None) -> InlineKeyboardMarkup:

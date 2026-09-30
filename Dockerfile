@@ -13,7 +13,7 @@ ENV PYTHONUNBUFFERED=1 \
 # контейнера приложения (ручной бэкап через make, автоматический делает
 # отдельный сервис backup).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl postgresql-client \
+        curl postgresql-client tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # uv — тот же менеджер пакетов, что и в разработке (в проекте нет pip).

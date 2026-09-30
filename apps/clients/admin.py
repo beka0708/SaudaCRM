@@ -7,6 +7,8 @@ from unfold.admin import ModelAdmin
 
 from apps.analytics.services import money
 
+from apps.core.admin import ActiveFilter
+
 from .models import Client
 
 _DEC = DecimalField(max_digits=20, decimal_places=2)
@@ -15,11 +17,13 @@ _HISTORY_LIMIT = 50
 
 @admin.register(Client)
 class ClientAdmin(ModelAdmin):
-    list_display = ("name", "phone", "address", "debt_display")
+    list_display = ("name", "phone", "address", "debt_display", "is_active")
+    list_filter = (ActiveFilter,)
+    list_editable = ("is_active",)
     search_fields = ("name", "phone", "address")
     readonly_fields = ("operations_history",)
     fieldsets = (
-        (None, {"fields": ("name", "phone", "address", "comment")}),
+        (None, {"fields": ("name", "phone", "address", "is_active", "comment")}),
         ("История операций", {"fields": ("operations_history",)}),
     )
 

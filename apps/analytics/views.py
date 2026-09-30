@@ -136,8 +136,26 @@ def analytics_view(request):
         "rows": buyer_rows,
     }
 
+    # --- «Анализ наших работ»: помесячно, как в Excel у заказчика ---
+    mb = s.monthly_breakdown(12)
+    mb = [r for r in mb if r["revenue"] or r["expenses"]]      # пустые месяцы не показываем
+    money_ = s.money
+    monthly_table = {
+        "headers": ["Месяц", "Выручка", "Себестоимость", "Расходы", "Чистый доход",
+                    "Продано под реал", "Вернули", "% расх", "% рентаб",
+                    "% возвр", "% под реал"],
+        "rows": [[
+            r["label"], money_(r["revenue"]), money_(r["cogs"]), money_(r["expenses"]),
+            money_(r["profit"]), money_(r["sold_debt"]), money_(r["returned"]),
+            f"{r['pct_expenses']:.2f}%", f"{r['pct_margin']:.2f}%",
+            f"{r['pct_returned']:.2f}%", f"{r['pct_debt']:.2f}%",
+        ] for r in mb],
+    }
+
     context.update({
         "title": "Аналитика",
+        "monthly_title": _title("table_chart", "Анализ наших работ (по месяцам)", "#10b981"),
+        "monthly_table": monthly_table,
         "an_start": start.isoformat(),
         "an_end": end.isoformat(),
         "an_period_label": period_label,

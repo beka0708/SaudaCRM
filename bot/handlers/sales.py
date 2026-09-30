@@ -1,7 +1,10 @@
 """Сценарий «Продажа» (FSM с корзиной).
 
-Шаги: товар → количество фасовок → цена за штуку → (ещё товар?) → тип оплаты →
-клиент (для реализации) → подтверждение → провести продажу.
+Шаги: тип оплаты → клиент (для реализации) → товар → количество фасовок →
+цена за штуку → (ещё товар?) → подтверждение → провести продажу.
+
+Тип оплаты и клиент идут ПЕРВЫМИ: так корзина сразу собирается «на клиента»,
+а не выясняется в самом конце, когда всё уже набрано.
 Продают только фасовками; цену вводит продавец (у разных клиентов разная).
 Запись — через apps.sales.services.create_sale (FIFO-списание + касса/долг атомарно).
 
@@ -21,10 +24,13 @@ from aiogram.types import (
     Message,
 )
 from asgiref.sync import sync_to_async
+from django.utils import timezone
 
 from apps.analytics.services import money
 from apps.catalog.services import pack_label
-from bot.keyboards import BTN_SALE, main_menu, pairs_kb
+from bot.keyboards import BTN_SALE, CB_OTHER, main_menu, pairs_kb
+from bot.queries import create_client as _create_client
+from bot.queries import get_active_clients as _get_clients
 from bot.queries import get_product_info as _get_product_info
 from bot.queries import get_products as _get_products
 from bot.states import SaleFSM
@@ -38,13 +44,6 @@ def _line_total(packs, units, price) -> Decimal:
 
 
 # --- обёртки над ORM/сервисами ---
-
-@sync_to_async
-def _get_clients():
-    from apps.clients.models import Client
-
-    return list(Client.objects.values_list("id", "name"))
-
 
 @sync_to_async
 def _finalize_sale(items, payment_type, client_id):
@@ -71,6 +70,8 @@ def _finalize_sale(items, payment_type, client_id):
         "payment": sale.get_payment_type_display(),
         "balance": get_cash_balance(),
         "client_debt": client.current_debt if client else None,
+        "client_name": client.name if client else None,
+        "date": timezone.localdate(sale.created_at),
     }
 
 
@@ -133,11 +134,19 @@ async def _show_confirm(cb, state):
 
 # --- шаги ---
 
+def _payment_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="💵 Наличные", callback_data="sale_pay:cash"),
+        InlineKeyboardButton(text="📦 Реализация", callback_data="sale_pay:debt"),
+    ]])
+
+
 @router.message(F.text == BTN_SALE)
 async def sale_start(message: Message, state: FSMContext):
     await state.clear()
     await state.update_data(items=[])
-    await _ask_product(message, state)
+    await state.set_state(SaleFSM.payment)
+    await message.answer("Как оплачивают?", reply_markup=_payment_kb())
 
 
 @router.callback_query(SaleFSM.product, F.data.startswith("sale_prod:"))
@@ -222,14 +231,8 @@ async def sale_more_add(cb: CallbackQuery, state: FSMContext):
 
 @router.callback_query(SaleFSM.more, F.data == "sale_more:done")
 async def sale_more_done(cb: CallbackQuery, state: FSMContext):
-    await state.set_state(SaleFSM.payment)
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[[
-            InlineKeyboardButton(text="💵 Наличные", callback_data="sale_pay:cash"),
-            InlineKeyboardButton(text="📦 Реализация", callback_data="sale_pay:debt"),
-        ]]
-    )
-    await cb.message.edit_text("Тип оплаты:", reply_markup=kb)
+    # Тип оплаты и клиент выбраны в самом начале — сразу подтверждение.
+    await _show_confirm(cb, state)
     await cb.answer()
 
 
@@ -237,19 +240,48 @@ async def sale_more_done(cb: CallbackQuery, state: FSMContext):
 async def sale_payment(cb: CallbackQuery, state: FSMContext):
     pay = cb.data.split(":")[1]  # cash | debt
     await state.update_data(payment_type=pay)
-    if pay == "debt":
-        clients = await _get_clients()
-        if not clients:
-            await cb.message.edit_text("Нет клиентов. Для реализации добавьте клиента в админке.")
-            await cb.answer()
-            return
-        await state.set_state(SaleFSM.client)
-        await cb.message.edit_text(
-            "Выберите клиента:", reply_markup=pairs_kb(clients, "sale_client"))
-    else:
+
+    if pay != "debt":
         await state.update_data(client_id=None, client_name=None)
-        await _show_confirm(cb, state)
+        await _ask_product(cb, state)
+        await cb.answer()
+        return
+
+    clients = await _get_clients()
+    await state.set_state(SaleFSM.client)
+    await cb.message.edit_text(
+        "Кому продаём под реализацию?" if clients
+        else "Активных клиентов нет — впишите имя:",
+        # Три столбца: клиентов много, в один они занимают весь экран.
+        reply_markup=pairs_kb(
+            clients, "sale_client", columns=3,
+            extra=[InlineKeyboardButton(text="✏️ Другой клиент",
+                                        callback_data=f"sale_client:{CB_OTHER}")],
+        ),
+    )
     await cb.answer()
+
+
+@router.callback_query(SaleFSM.client, F.data == f"sale_client:{CB_OTHER}")
+async def sale_client_other(cb: CallbackQuery, state: FSMContext):
+    await state.set_state(SaleFSM.new_client)
+    await cb.message.edit_text(
+        "Напишите имя клиента.\n"
+        "<i>Если такого ещё нет — он будет создан автоматически.</i>")
+    await cb.answer()
+
+
+@router.message(SaleFSM.new_client)
+async def sale_client_new(message: Message, state: FSMContext):
+    name = (message.text or "").strip()
+    if not name:
+        await message.answer("Введите имя клиента:")
+        return
+    cid, cname, created = await _create_client(name)
+    await state.update_data(client_id=cid, client_name=cname)
+    if created:
+        await message.answer(f"👤 Новый клиент: <b>{cname}</b>")
+    await _ask_product(message, state)
 
 
 @router.callback_query(SaleFSM.client, F.data.startswith("sale_client:"))
@@ -257,7 +289,7 @@ async def sale_client(cb: CallbackQuery, state: FSMContext):
     cid = int(cb.data.split(":")[1])
     clients = dict(await _get_clients())
     await state.update_data(client_id=cid, client_name=clients.get(cid))
-    await _show_confirm(cb, state)
+    await _ask_product(cb, state)
     await cb.answer()
 
 
@@ -281,7 +313,23 @@ async def sale_confirm_yes(cb: CallbackQuery, state: FSMContext):
     if result.get("client_debt") is not None:
         msg += f"\n📦 Долг клиента: <b>{money(result['client_debt'])} сом</b>"
     await cb.message.edit_text(msg)
-    await cb.message.answer("Готово 👍", reply_markup=main_menu())
+
+    # Для реализации отправляем ВТОРЫМ сообщением текст для самого клиента:
+    # его удобно переслать как есть, не вычищая служебные строки бота.
+    if result.get("client_name"):
+        lines = [f"<b>{result['client_name']}</b>", f"Покупка от {result['date']:%d.%m.%Y}", ""]
+        for it in data["items"]:
+            s_line = _line_total(it["packs"], it["units"], it["price_per_unit"])
+            lines.append(
+                f"{it['product_name']} — {it['packs']} "
+                f"{pack_label(it['pack_name'], it['packs'])} × "
+                f"{money(it['price_per_unit'])} сом = {money(s_line)} сом")
+        lines += ["", f"Сумма покупки: {money(result['total'])} сом",
+                  f"<b>Общий долг: {money(result['client_debt'])} сом</b>"]
+        await cb.message.answer("\n".join(lines))
+        await cb.message.answer("↑ можно переслать клиенту", reply_markup=main_menu())
+    else:
+        await cb.message.answer("Готово 👍", reply_markup=main_menu())
     await cb.answer()
 
 

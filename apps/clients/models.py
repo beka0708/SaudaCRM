@@ -9,6 +9,12 @@ class Client(models.Model):
     phone = models.CharField("Телефон", max_length=32, blank=True)
     address = models.CharField("Адрес", max_length=255, blank=True)
     comment = models.TextField("Комментарий", blank=True)
+    is_active = models.BooleanField(
+        "Активный",
+        default=True,
+        help_text="Неактивные не показываются в боте при продаже и оплате долга. "
+        "Историю и долги не трогает — просто убирает из списков выбора.",
+    )
     created_at = models.DateTimeField("Создан", auto_now_add=True)
     updated_at = models.DateTimeField("Обновлён", auto_now=True)
 

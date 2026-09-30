@@ -31,6 +31,11 @@ class CashFlow(models.Model):
 
     direction = models.CharField("Тип", max_length=8, choices=Direction.choices)
     category = models.CharField("Категория", max_length=20, choices=Category.choices)
+    # Своя статья расхода из бота: «Сушняк», «Стоянка», «Шоппинг» и т.п.
+    # Категория выше остаётся укрупнённой (для кассы и прибыли), а здесь
+    # хранится то, что реально выбрал человек — по ней можно фильтровать
+    # и группировать, не плодя два десятка значений в Category.
+    subcategory = models.CharField("Статья", max_length=64, blank=True)
     amount = models.DecimalField("Сумма", max_digits=14, decimal_places=2)
     date = models.DateField("Дата", default=timezone.localdate)
     comment = models.CharField("Комментарий", max_length=255, blank=True)

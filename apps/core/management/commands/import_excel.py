@@ -472,7 +472,8 @@ class Command(BaseCommand):
         for e in plan["expenses"]:
             cat = CashFlow.Category.PERSONAL if e["personal"] else map_expense(e["what"])
             record_cash_flow(CashFlow.Direction.OUT, cat, e["amount"],
-                             date=e["date"], comment=e["what"] or "Импорт из Excel")
+                             date=e["date"], comment=e["what"] or "Импорт из Excel",
+                             subcategory=e["what"][:64])
         w(f"  расходов: {len(plan['expenses'])}")
 
         # Одна балансирующая проводка, чтобы касса сошлась с их «На счету».

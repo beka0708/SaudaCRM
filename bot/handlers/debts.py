@@ -11,7 +11,9 @@ from aiogram.types import CallbackQuery, Message
 from asgiref.sync import sync_to_async
 
 from apps.analytics.services import money
-from bot.keyboards import BTN_DEBT, main_menu, pairs_kb
+from aiogram.types import InlineKeyboardButton
+from bot.keyboards import BTN_DEBT, CB_OTHER, main_menu, pairs_kb
+from bot.queries import find_clients as _find_clients
 from bot.states import DebtPaymentFSM
 
 router = Router()
@@ -22,10 +24,12 @@ def _get_debtors():
     from apps.clients.models import Client
 
     result = []
-    for c in Client.objects.all():
+    for c in Client.objects.filter(is_active=True):
         debt = c.current_debt
         if debt > 0:
-            result.append((c.id, f"{c.name} — {money(debt)} сом"))
+            # Коротко: в три столбца длинная подпись не помещается,
+            # точную сумму бот покажет на следующем шаге.
+            result.append((c.id, c.name))
     return result
 
 
@@ -53,17 +57,49 @@ def _finalize_payment(client_id, amount):
     }
 
 
+def _debtors_kb(debtors):
+    # Три столбца: должников десятки, одним списком занимают весь экран.
+    return pairs_kb(
+        debtors, "pay_client", columns=3,
+        extra=[InlineKeyboardButton(text="✏️ Другой клиент",
+                                    callback_data=f"pay_client:{CB_OTHER}")],
+    )
+
+
 @router.message(F.text == BTN_DEBT)
 async def debt_start(message: Message, state: FSMContext):
     debtors = await _get_debtors()
-    if not debtors:
-        await message.answer("Сейчас нет должников 🎉", reply_markup=main_menu())
-        return
     await state.clear()
     await state.set_state(DebtPaymentFSM.client)
-    # Один столбец: подпись «Имя — 311 960 сом» в два столбца не помещается.
     await message.answer(
-        "Кто оплачивает долг?", reply_markup=pairs_kb(debtors, "pay_client", columns=1))
+        "Кто оплачивает долг?" if debtors
+        else "Среди активных клиентов должников нет. Впишите имя для поиска:",
+        reply_markup=_debtors_kb(debtors))
+
+
+@router.callback_query(DebtPaymentFSM.client, F.data == f"pay_client:{CB_OTHER}")
+async def debt_client_other(cb: CallbackQuery, state: FSMContext):
+    await state.set_state(DebtPaymentFSM.find_client)
+    await cb.message.edit_text("Напишите имя клиента (можно часть):")
+    await cb.answer()
+
+
+@router.message(DebtPaymentFSM.find_client)
+async def debt_client_find(message: Message, state: FSMContext):
+    text = (message.text or "").strip()
+    if not text:
+        await message.answer("Введите имя:")
+        return
+    found = await _find_clients(text)
+    if not found:
+        await message.answer(
+            f"Клиент «{text}» не найден. Попробуйте другое написание "
+            f"или часть имени:")
+        return
+    await state.set_state(DebtPaymentFSM.client)
+    await message.answer(
+        f"Нашёл {len(found)} — выберите:",
+        reply_markup=pairs_kb(found, "pay_client", columns=3))
 
 
 @router.callback_query(DebtPaymentFSM.client, F.data.startswith("pay_client:"))
