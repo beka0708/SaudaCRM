@@ -90,6 +90,14 @@ class SaleItem(models.Model):
     cogs = models.DecimalField(
         "Себестоимость (FIFO)", max_digits=14, decimal_places=2, default=0, editable=False
     )
+    # Выручка позиции — СНИМОК на момент продажи, как и себестоимость.
+    # Пересчитывать её из packs × units_per_pack × price нельзя: units_per_pack
+    # берётся из справочника ТЕКУЩЕГО товара, и стоит поправить фасовку —
+    # вся прошлая выручка молча меняется. Для импортированных строк сюда
+    # кладётся готовая сумма из таблицы заказчика.
+    revenue = models.DecimalField(
+        "Выручка позиции", max_digits=14, decimal_places=2, default=0, editable=False
+    )
 
     class Meta:
         verbose_name = "Позиция продажи"

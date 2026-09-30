@@ -192,12 +192,11 @@ def _saleitems_qs(start=None, end=None):
 
 def top_products(start=None, end=None, limit=8):
     start = start or rolling_start()
-    rev_expr = F("packs") * F("product__units_per_pack") * F("price_per_unit")
     rows = (
         _saleitems_qs(start, end)
         .values("product", "product__name")
         .annotate(
-            revenue=Sum(rev_expr, output_field=DEC),
+            revenue=Sum("revenue"),
             qty=Sum("packs"),
         )
         .order_by("-revenue")[:limit]
@@ -211,12 +210,11 @@ def top_products(start=None, end=None, limit=8):
 
 def margin_by_product(start=None, end=None, limit=12):
     start = start or rolling_start()
-    rev_expr = F("packs") * F("product__units_per_pack") * F("price_per_unit")
     rows = (
         _saleitems_qs(start, end)
         .values("product", "product__name")
         .annotate(
-            revenue=Sum(rev_expr, output_field=DEC),
+            revenue=Sum("revenue"),
             cost=Coalesce(Sum("cogs"), Value(0, output_field=DEC)),
         )
     )
@@ -271,9 +269,8 @@ def stock_forecast(start=None, end=None, limit=12):
 
 def revenue_and_cogs(start, end):
     """Выручка и себестоимость ПРОДАННОГО за период (по позициям продаж)."""
-    rev_expr = F("packs") * F("product__units_per_pack") * F("price_per_unit")
     agg = _saleitems_qs(start, end).aggregate(
-        revenue=Coalesce(Sum(rev_expr, output_field=DEC), Value(0, output_field=DEC)),
+        revenue=Coalesce(Sum("revenue"), Value(0, output_field=DEC)),
         cogs=Coalesce(Sum("cogs"), Value(0, output_field=DEC)),
     )
     return {"revenue": agg["revenue"] or ZERO, "cogs": agg["cogs"] or ZERO}
@@ -521,13 +518,12 @@ def top_clients_by_profit(start=None, end=None, limit=8):
     Наличные продажи без клиента в рейтинг не попадают.
     """
     start = start or rolling_start()
-    rev_expr = F("packs") * F("product__units_per_pack") * F("price_per_unit")
     rows = (
         _saleitems_qs(start, end)
         .filter(sale__client__isnull=False)
         .values("sale__client", "sale__client__name")
         .annotate(
-            revenue=Sum(rev_expr, output_field=DEC),
+            revenue=Sum("revenue"),
             cost=Coalesce(Sum("cogs"), Value(0, output_field=DEC)),
         )
     )

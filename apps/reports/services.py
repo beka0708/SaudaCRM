@@ -125,7 +125,7 @@ def top_product_rows(start, end):
         .values("product__name")
         .annotate(
             sold=Sum("packs"),
-            revenue=Sum(F("packs") * F("product__units_per_pack") * F("price_per_unit"), output_field=_DEC),
+            revenue=Sum("revenue"),
         )
         .order_by("-revenue")
     )
