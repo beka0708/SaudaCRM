@@ -369,6 +369,17 @@ def monthly_breakdown(months=12):
                 is_reversed=False, debt__is_reversed=False)
             .aggregate(s=Sum("amount"))["s"] or ZERO
         )
+        # Сколько РЕАЛЬНО пришло денег за месяц: наличные продажи + возвраты
+        # по реализации. Именно этого не хватало в картине — прибыль может
+        # быть миллионная, а деньги лежать в долгах клиентов.
+        from apps.finance.models import CashFlow
+
+        cash_in = (
+            CashFlow.objects.filter(
+                direction=CashFlow.Direction.IN, date__gte=start, date__lte=end,
+                category__in=[CashFlow.Category.SALE, CashFlow.Category.DEBT_PAYMENT])
+            .aggregate(s=Sum("amount"))["s"] or ZERO
+        )
         rev = m["revenue"]
         pct = lambda a, b: float(a / b * 100) if b else 0.0  # noqa: E731
         rows.append({
@@ -376,6 +387,7 @@ def monthly_breakdown(months=12):
             "label": f"{_MONTHS_RU[start.month - 1]} {start.year}",
             "revenue": rev, "cogs": m["cogs"], "expenses": m["expenses"],
             "profit": m["profit"], "sold_debt": sold_debt, "returned": returned,
+            "cash_in": cash_in,
             "pct_expenses": pct(m["expenses"], rev),
             "pct_margin": pct(m["profit"], rev),
             "pct_returned": pct(returned, sold_debt),

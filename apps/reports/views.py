@@ -35,7 +35,8 @@ def reports_view(request):
         "label": r["label"],
         "cells": [
             money(r["revenue"]), money(r["cogs"]), money(r["expenses"]),
-            money(r["profit"]), money(r["sold_debt"]), money(r["returned"]),
+            money(r["profit"]), money(r["cash_in"]),
+            money(r["sold_debt"]), money(r["returned"]),
             f"{r['pct_expenses']:.2f}%", f"{r['pct_margin']:.2f}%",
             f"{r['pct_returned']:.2f}%", f"{r['pct_debt']:.2f}%",
         ],
@@ -47,8 +48,8 @@ def reports_view(request):
         "title": "Отчёты",
         "monthly_headers": [
             "Месяц", "Выручка", "Себестоимость", "Расходы", "Чистый доход",
-            "Продано под реал", "Вернули", "% расх", "% рентаб",
-            "% возвр", "% под реал",
+            "Пришло деньгами", "Продано под реал", "Вернули",
+            "% расх", "% рентаб", "% возвр", "% под реал",
         ],
         "monthly_rows": monthly_rows,
         "default_start": request.GET.get("start", default_start.isoformat()),
