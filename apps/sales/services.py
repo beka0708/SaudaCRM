@@ -48,8 +48,10 @@ def process_sale(sale: Sale) -> Sale:
     for item in sale.items.all():
         # consume_fifo кидает ValidationError при нехватке — вся транзакция откатится.
         item.cogs = consume_fifo(item)
-        item.save(update_fields=["cogs"])
-        total += item.line_total
+        # Снимок выручки: считаем ОДИН раз, на момент продажи.
+        item.revenue = item.line_total
+        item.save(update_fields=["cogs", "revenue"])
+        total += item.revenue
 
     sale.total = total
 

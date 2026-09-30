@@ -451,7 +451,10 @@ class Command(BaseCommand):
                     comment="Импорт из Excel", created_at=dt)
                 SaleItem.objects.create(
                     sale=sale, product=products[item["product"]], packs=item["packs"],
-                    price_per_unit=item["price"], cogs=item["cogs"])
+                    price_per_unit=item["price"], cogs=item["cogs"],
+                    # Выручку берём готовую из их колонки, а не пересчитываем:
+                    # «штук в фасовке» у товара за годы могло меняться.
+                    revenue=item["revenue"])
                 # FIFO не трогаем: партий за историю в таблице нет, себестоимость
                 # взята готовой. Проводки книжим вручную.
                 if item["debt"] and client:
