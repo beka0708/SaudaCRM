@@ -39,7 +39,9 @@ def _save(item, amount, comment, personal):
     add_expense(
         expense_category_for(item, personal=personal),
         amount,
-        comment=comment or item,
+        # У личных расходов комментария нет (лишний шаг, решение заказчика) —
+        # что именно купили, уже лежит в статье, дублировать не нужно.
+        comment="" if personal else (comment or item),
         subcategory=item,
     )
     return get_cash_balance()
@@ -111,16 +113,20 @@ async def expense_amount(message: Message, state: FSMContext):
         await message.answer("Нужно положительное число, например 1500. Ещё раз:")
         return
     await state.update_data(amount=str(amount))
+
+    data = await state.get_data()
+    # Личный расход записываем сразу: комментарий к нему не нужен, а лишний
+    # шаг на самом частом сценарии заметно замедляет ввод.
+    if data["personal"]:
+        await _finish(message, state, data, comment="")
+        return
+
     await state.set_state(ExpenseFSM.comment)
     await message.answer("Комментарий (или «-», чтобы пропустить):")
 
 
-@router.message(ExpenseFSM.comment)
-async def expense_comment(message: Message, state: FSMContext):
-    comment = (message.text or "").strip()
-    if comment == "-":
-        comment = ""
-    data = await state.get_data()
+async def _finish(message, state, data, comment):
+    """Записать расход и показать итог. Общая концовка обоих сценариев."""
     balance = await _save(data["item"], data["amount"], comment, data["personal"])
     await state.clear()
     kind = "Личный расход" if data["personal"] else "Расход компании"
@@ -130,3 +136,11 @@ async def expense_comment(message: Message, state: FSMContext):
         f"💰 Касса: <b>{money(balance)} сом</b>",
         reply_markup=main_menu(),
     )
+
+
+@router.message(ExpenseFSM.comment)
+async def expense_comment(message: Message, state: FSMContext):
+    comment = (message.text or "").strip()
+    if comment == "-":
+        comment = ""
+    await _finish(message, state, await state.get_data(), comment)
