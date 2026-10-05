@@ -116,6 +116,11 @@ class Obligation(models.Model):
         "Платёж по умолчанию", max_digits=14, decimal_places=2, null=True, blank=True,
         help_text="Если задан, бот гасит эту сумму одним нажатием, без вопросов.",
     )
+    allow_charge = models.BooleanField(
+        "Можно занимать ещё", default=False,
+        help_text="У банковского кредита сумма фиксирована, а личный заём "
+        "можно доливать. Если включено — бот покажет кнопку «Занять ещё».",
+    )
     is_active = models.BooleanField("Активно", default=True)
     created_at = models.DateTimeField("Создано", auto_now_add=True)
 
@@ -127,17 +132,26 @@ class Obligation(models.Model):
     def __str__(self):
         return f"{self.name}: осталось {self.remaining}"
 
-    @property
-    def paid(self) -> Decimal:
+    def _sum(self, kind) -> Decimal:
         from django.db.models import Sum
 
-        return self.payments.filter(is_reversed=False).aggregate(
+        return self.payments.filter(is_reversed=False, kind=kind).aggregate(
             s=Sum("amount"))["s"] or Decimal("0")
 
     @property
+    def paid(self) -> Decimal:
+        """Сколько погасили."""
+        return self._sum("payment")
+
+    @property
+    def charged(self) -> Decimal:
+        """Сколько заняли сверх начальной суммы."""
+        return self._sum("charge")
+
+    @property
     def remaining(self) -> Decimal:
-        """Остаток в валюте обязательства."""
-        return self.opening_amount - self.paid
+        """Остаток в валюте обязательства: начальный + занятое − погашенное."""
+        return self.opening_amount + self.charged - self.paid
 
     @property
     def remaining_kgs(self) -> Decimal:
@@ -146,8 +160,20 @@ class Obligation(models.Model):
 
 
 class ObligationPayment(ReversibleDocument):
-    """Платёж по нашему долгу. Уменьшает кассу на сомовый эквивалент."""
+    """Движение по нашему долгу: погашение или новый заём.
 
+    Погашение уменьшает долг и уводит деньги из кассы. Заём увеличивает
+    долг, но кассу НЕ трогает: занимают не всегда деньгами (бывает и
+    товаром), а лишний приход в кассе вычищать тяжелее, чем добавить.
+    """
+
+    class Kind(models.TextChoices):
+        PAYMENT = "payment", "Погашение"
+        CHARGE = "charge", "Новый заём"
+
+    kind = models.CharField(
+        "Тип", max_length=8, choices=Kind.choices, default=Kind.PAYMENT
+    )
     obligation = models.ForeignKey(
         Obligation, on_delete=models.PROTECT, related_name="payments",
         verbose_name="Долг / кредит",
@@ -164,13 +190,14 @@ class ObligationPayment(ReversibleDocument):
     created_at = models.DateTimeField("Дата", default=timezone.now)
 
     class Meta:
-        verbose_name = "Платёж по долгу"
-        verbose_name_plural = "Платежи по нашим долгам"
+        verbose_name = "Движение по долгу"
+        verbose_name_plural = "Движения по нашим долгам"
         ordering = ["-created_at"]
 
     def __str__(self):
         mark = " (СТОРНО)" if self.is_reversed else ""
-        return f"{self.obligation.name}: −{self.amount}{mark}"
+        sign = "+" if self.kind == self.Kind.CHARGE else "−"
+        return f"{self.obligation.name}: {sign}{self.amount}{mark}"
 
     @property
     def amount_kgs(self) -> Decimal:
@@ -181,8 +208,9 @@ class ObligationPayment(ReversibleDocument):
         if creating and not self.rate:
             self.rate = self.obligation.rate
         super().save(*args, **kwargs)
-        # Единая точка: любой новый платёж сразу уходит расходом из кассы.
-        if creating:
+        # Единая точка: погашение сразу уходит расходом из кассы.
+        # Заём кассу не трогает — см. комментарий к классу.
+        if creating and self.kind == self.Kind.PAYMENT:
             from apps.finance.services import record_cash_flow
 
             record_cash_flow(

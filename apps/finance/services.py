@@ -169,26 +169,31 @@ def add_expense(category, amount, date=None, comment="", subcategory=""):
 
 @transaction.atomic
 def reverse_obligation_payment(payment_id, user=None, reason=""):
-    """Сторно платежа по нашему долгу: деньги назад в кассу, долг вырастает.
+    """Сторно движения по нашему долгу.
+
+    Погашение: деньги возвращаются в кассу, долг снова растёт.
+    Заём: долг уменьшается обратно, касса не затрагивалась и не меняется.
 
     Нужно прежде всего из-за кнопок «в один тап»: кредит гасится без
-    подтверждения, и случайное нажатие нужно уметь отменить.
+    подтверждения, и случайное нажатие надо уметь отменить.
     """
-    from apps.finance.models import CashFlow, Obligation, ObligationPayment
+    from apps.finance.models import CashFlow, ObligationPayment
 
     payment = ObligationPayment.objects.select_related("obligation").get(pk=payment_id)
     payment.refresh_from_db()
     if payment.is_reversed:
         return payment
 
-    record_cash_flow(
-        CashFlow.Direction.IN,
-        CashFlow.Category.LOAN_PAYMENT,
-        payment.amount_kgs,
-        date=timezone.localdate(payment.created_at),
-        comment=f"Сторно погашения: {payment.obligation.name}",
-        subcategory=payment.obligation.name[:64],
-    )
+    # Заём кассу не трогал — значит и возвращать в кассу нечего.
+    if payment.kind == ObligationPayment.Kind.PAYMENT:
+        record_cash_flow(
+            CashFlow.Direction.IN,
+            CashFlow.Category.LOAN_PAYMENT,
+            payment.amount_kgs,
+            date=timezone.localdate(payment.created_at),
+            comment=f"Сторно погашения: {payment.obligation.name}",
+            subcategory=payment.obligation.name[:64],
+        )
     payment.mark_reversed(user, reason)
     payment.save(update_fields=["is_reversed", "reversed_at", "reversed_by", "reversal_reason"])
     payment.obligation.refresh_from_db()

@@ -36,6 +36,7 @@ def _obligations():
             "currency": o.currency, "rate": o.rate,
             "remaining": o.remaining, "remaining_kgs": o.remaining_kgs,
             "default_payment": o.default_payment,
+            "allow_charge": o.allow_charge,
         }
         for o in Obligation.objects.filter(is_active=True)
     ]
@@ -51,7 +52,27 @@ def _info(oid):
     return {
         "id": o.id, "name": o.name, "currency": o.currency, "rate": o.rate,
         "remaining": o.remaining, "remaining_kgs": o.remaining_kgs,
-        "default_payment": o.default_payment,
+        "default_payment": o.default_payment, "allow_charge": o.allow_charge,
+    }
+
+
+@sync_to_async
+def _charge(oid, amount, comment):
+    """Новый заём: долг растёт. Кассу НЕ трогаем — занимают не всегда деньгами."""
+    from apps.finance.models import Obligation, ObligationPayment
+    from apps.finance.services import get_cash_balance
+
+    o = Obligation.objects.get(pk=oid)
+    ObligationPayment.objects.create(
+        obligation=o, amount=Decimal(str(amount)), rate=o.rate,
+        comment=comment, kind=ObligationPayment.Kind.CHARGE,
+    )
+    o.refresh_from_db()
+    return {
+        "name": o.name, "currency": o.currency, "rate": o.rate,
+        "added": Decimal(str(amount)),
+        "remaining": o.remaining, "remaining_kgs": o.remaining_kgs,
+        "balance": get_cash_balance(), "charge": True,
     }
 
 
@@ -77,6 +98,19 @@ def _pay(oid, amount, comment, employee):
 
 
 def _result_text(r):
+    if r.get("charge"):
+        lines = [f"➕ <b>{r['name']}</b> — долг увеличен\n"]
+        cur = "$" if r["currency"] == "USD" else "сом"
+        lines.append(f"Занято: <b>{money(r['added'])} {cur}</b>")
+        if r["currency"] == "USD":
+            lines.append(f"Остаток долга в долларах:\n<b>{money(r['remaining'])} $</b>")
+            lines.append(f"Остаток долга в сомах:\n<b>{money(r['remaining_kgs'])} сом</b>")
+            lines.append(f"Курс доллара: {r['rate']}")
+        else:
+            lines.append(f"Остаток долга: <b>{money(r['remaining'])} сом</b>")
+        lines.append(f"\n💰 Касса не изменилась: <b>{money(r['balance'])} сом</b>")
+        return "\n".join(lines)
+
     lines = [f"✅ <b>{r['name']}</b> — погашено\n"]
     if r["currency"] == "USD":
         lines.append(f"Внесено: <b>{money(r['paid'])} $</b> "
@@ -111,6 +145,10 @@ async def repay_start(message: Message, state: FSMContext):
         # В подписи кнопки — только название: суммы уже перечислены выше.
         rows.append([InlineKeyboardButton(
             text=o["name"], callback_data=f"repay:{o['id']}")])
+        if o["allow_charge"]:
+            rows.append([InlineKeyboardButton(
+                text=f"➕ Занять ещё — {o['name']}",
+                callback_data=f"charge:{o['id']}")])
 
     lines.append("\nЧто гасим?")
     await state.set_state(RepayFSM.choose)
@@ -128,7 +166,7 @@ async def repay_pick(cb: CallbackQuery, state: FSMContext, employee):
         return
 
     await state.update_data(oid=info["id"], currency=info["currency"],
-                            rate=str(info["rate"]), name=info["name"])
+                            rate=str(info["rate"]), name=info["name"], mode="pay")
 
     # Кредит с фиксированным платежом — гасим сразу, без вопросов.
     if info["default_payment"]:
@@ -150,6 +188,27 @@ async def repay_pick(cb: CallbackQuery, state: FSMContext, employee):
         f"Остаток: {money(info['remaining'])} "
         f"{'$' if info['currency'] == 'USD' else 'сом'}\n\n"
         f"Сколько вносим (в {unit})?"
+    )
+    await cb.answer()
+
+
+@router.callback_query(RepayFSM.choose, F.data.startswith("charge:"))
+async def charge_pick(cb: CallbackQuery, state: FSMContext):
+    info = await _info(int(cb.data.split(":")[1]))
+    if not info:
+        await state.clear()
+        await cb.message.edit_text("Долг не найден.")
+        await cb.answer()
+        return
+    await state.update_data(oid=info["id"], currency=info["currency"],
+                            rate=str(info["rate"]), name=info["name"], mode="charge")
+    await state.set_state(RepayFSM.amount)
+    unit = "долларах" if info["currency"] == "USD" else "сомах"
+    await cb.message.edit_text(
+        f"➕ <b>{info['name']}</b> — новый заём\n"
+        f"Сейчас долг: {money(info['remaining'])} "
+        f"{'$' if info['currency'] == 'USD' else 'сом'}\n\n"
+        f"Сколько заняли (в {unit})?"
     )
     await cb.answer()
 
@@ -178,7 +237,10 @@ async def repay_comment(message: Message, state: FSMContext, employee):
         await message.answer("Комментарий обязателен. Напишите, за что платёж:")
         return
     data = await state.get_data()
-    result = await _pay(data["oid"], data["amount"], comment, employee)
+    if data.get("mode") == "charge":
+        result = await _charge(data["oid"], data["amount"], comment)
+    else:
+        result = await _pay(data["oid"], data["amount"], comment, employee)
     await state.clear()
     if result.get("error"):
         await message.answer(f"❌ {result['error']}", reply_markup=main_menu())

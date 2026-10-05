@@ -27,7 +27,8 @@ _EFFECT = {
     "sale": "Товар вернётся на склад, деньги/долг откатятся.",
     "batch": "Партия уйдёт со склада, деньги за закупку вернутся в кассу.",
     "payment": "Деньги уйдут из кассы, долг клиента снова станет открытым.",
-    "obligation": "Деньги вернутся в кассу, наш долг снова вырастет на эту сумму.",
+    "obligation": "Движение отменится: долг вернётся к прежней сумме, "
+                  "а деньги по погашению — в кассу.",
 }
 
 
@@ -87,7 +88,8 @@ def _describe(kind, pk):
         if not op or op.is_reversed:
             return None
         cur = "$" if op.obligation.currency == "USD" else "сом"
-        return f"🏦 Погашение — {op.obligation.name}, {money(op.amount)} {cur}"
+        word = "Заём" if op.kind == "charge" else "Погашение"
+        return f"🏦 {word} — {op.obligation.name}, {money(op.amount)} {cur}"
 
     p = DebtPayment.objects.select_related("debt__client").filter(pk=pk).first()
     if not p or p.is_reversed:
@@ -143,9 +145,10 @@ def _reverse(kind, pk, employee):
 
             op = reverse_obligation_payment(pk, user=employee, reason="Отмена из бота")
             cur = "$" if op.obligation.currency == "USD" else "сом"
+            word = "Заём" if op.kind == "charge" else "Погашение"
             lines = [
-                f"✅ Погашение отменено: {op.obligation.name}",
-                f"🏦 Долг снова: {money(op.obligation.remaining)} {cur}",
+                f"✅ {word} отменён: {op.obligation.name}",
+                f"🏦 Долг теперь: {money(op.obligation.remaining)} {cur}",
             ]
 
         else:

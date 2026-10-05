@@ -79,9 +79,11 @@ def recent_operations(limit=8) -> list[dict]:
               .select_related("obligation")
               .order_by("-created_at")[:limit]):
         cur = "$" if p.obligation.currency == "USD" else "сом"
+        charge = p.kind == "charge"
         ops.append({
             "kind": "obligation", "id": p.pk, "dt": p.created_at,
-            "icon": "🏦", "title": f"Погашение · {p.obligation.name}",
+            "icon": "➕" if charge else "🏦",
+            "title": f"{'Заём' if charge else 'Погашение'} · {p.obligation.name}",
             "detail": f"{money(p.amount)} {cur}",
         })
 
