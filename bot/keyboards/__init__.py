@@ -12,6 +12,8 @@ BTN_RECEIPT = "📥 Приход"
 BTN_DEBT = "💰 Оплата долга"
 BTN_EXPENSE = "➖ Расход"
 BTN_PERSONAL = "🧍 Личный расход"
+BTN_LIST = "📋 Список"
+BTN_REPAY = "🏦 Погашение"
 BTN_UNDO = "↩️ Отменить"
 
 # Кнопка «свой вариант» — общая для списков клиентов и статей расходов.
@@ -27,6 +29,7 @@ def main_menu() -> ReplyKeyboardMarkup:
             [KeyboardButton(text=BTN_SALE), KeyboardButton(text=BTN_RECEIPT)],
             [KeyboardButton(text=BTN_DEBT), KeyboardButton(text=BTN_EXPENSE)],
             [KeyboardButton(text=BTN_PERSONAL), KeyboardButton(text=BTN_UNDO)],
+            [KeyboardButton(text=BTN_LIST), KeyboardButton(text=BTN_REPAY)],
         ],
         resize_keyboard=True,
     )

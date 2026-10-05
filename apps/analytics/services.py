@@ -294,6 +294,10 @@ def operating_expenses(start, end):
     Личные расходы владельца — не затраты бизнеса, а изъятие: они уменьшают
     кассу, но не прибыль. Поэтому и в дайджесте они идут отдельным блоком.
 
+    Погашение кредитов и долгов — тоже не расход: деньги уходят, но это
+    уменьшение обязательства. Если считать их расходом, прибыль провалится
+    в минус на ровном месте.
+
     Обе поправки сверены с их таблицей «Показатели»: сходится в ноль по всем
     месяцам 2026 года.
     """
@@ -301,7 +305,11 @@ def operating_expenses(start, end):
 
     s = (
         _expenses_qs(start, end)
-        .exclude(category__in=[CashFlow.Category.PURCHASE, CashFlow.Category.PERSONAL])
+        .exclude(category__in=[
+            CashFlow.Category.PURCHASE,
+            CashFlow.Category.PERSONAL,
+            CashFlow.Category.LOAN_PAYMENT,
+        ])
         .aggregate(s=Sum("amount"))["s"]
     )
     return s or ZERO

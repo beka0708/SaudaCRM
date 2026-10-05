@@ -27,6 +27,7 @@ _EFFECT = {
     "sale": "Товар вернётся на склад, деньги/долг откатятся.",
     "batch": "Партия уйдёт со склада, деньги за закупку вернутся в кассу.",
     "payment": "Деньги уйдут из кассы, долг клиента снова станет открытым.",
+    "obligation": "Деньги вернутся в кассу, наш долг снова вырастет на эту сумму.",
 }
 
 
@@ -79,6 +80,15 @@ def _describe(kind, pk):
             f"📥 Приход — {b.product.name}, {packs} "
             f"{pack_label(b.product.pack_name, packs)}"
         )
+    if kind == "obligation":
+        from apps.finance.models import ObligationPayment
+
+        op = ObligationPayment.objects.select_related("obligation").filter(pk=pk).first()
+        if not op or op.is_reversed:
+            return None
+        cur = "$" if op.obligation.currency == "USD" else "сом"
+        return f"🏦 Погашение — {op.obligation.name}, {money(op.amount)} {cur}"
+
     p = DebtPayment.objects.select_related("debt__client").filter(pk=pk).first()
     if not p or p.is_reversed:
         return None
@@ -126,6 +136,16 @@ def _reverse(kind, pk, employee):
             lines = [
                 f"✅ Приход отменён: {batch.product.name}",
                 stock_line(batch.product, packs, sign="−"),
+            ]
+
+        elif kind == "obligation":
+            from apps.finance.services import reverse_obligation_payment
+
+            op = reverse_obligation_payment(pk, user=employee, reason="Отмена из бота")
+            cur = "$" if op.obligation.currency == "USD" else "сом"
+            lines = [
+                f"✅ Погашение отменено: {op.obligation.name}",
+                f"🏦 Долг снова: {money(op.obligation.remaining)} {cur}",
             ]
 
         else:

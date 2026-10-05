@@ -22,7 +22,9 @@ class Command(BaseCommand):
         from aiogram.client.default import DefaultBotProperties
         from aiogram.enums import ParseMode
 
-        from bot.handlers import common, debts, expenses, receipts, reversals, sales
+        from bot.handlers import (
+            common, debts, expenses, lists, receipts, repayments, reversals, sales,
+        )
         from bot.middlewares import AuthMiddleware
 
         # Доступ проверяем на всех сообщениях и нажатиях кнопок.
@@ -35,6 +37,8 @@ class Command(BaseCommand):
         dp.include_router(debts.router)
         dp.include_router(expenses.router)
         dp.include_router(reversals.router)
+        dp.include_router(lists.router)
+        dp.include_router(repayments.router)
 
         bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
