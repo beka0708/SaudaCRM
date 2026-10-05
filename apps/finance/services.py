@@ -5,6 +5,7 @@
 """
 from decimal import Decimal
 
+from django.db import transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
 
@@ -164,3 +165,31 @@ def add_expense(category, amount, date=None, comment="", subcategory=""):
         CashFlow.Direction.OUT, category, amount,
         date=date, comment=comment, subcategory=subcategory,
     )
+
+
+@transaction.atomic
+def reverse_obligation_payment(payment_id, user=None, reason=""):
+    """Сторно платежа по нашему долгу: деньги назад в кассу, долг вырастает.
+
+    Нужно прежде всего из-за кнопок «в один тап»: кредит гасится без
+    подтверждения, и случайное нажатие нужно уметь отменить.
+    """
+    from apps.finance.models import CashFlow, Obligation, ObligationPayment
+
+    payment = ObligationPayment.objects.select_related("obligation").get(pk=payment_id)
+    payment.refresh_from_db()
+    if payment.is_reversed:
+        return payment
+
+    record_cash_flow(
+        CashFlow.Direction.IN,
+        CashFlow.Category.LOAN_PAYMENT,
+        payment.amount_kgs,
+        date=timezone.localdate(payment.created_at),
+        comment=f"Сторно погашения: {payment.obligation.name}",
+        subcategory=payment.obligation.name[:64],
+    )
+    payment.mark_reversed(user, reason)
+    payment.save(update_fields=["is_reversed", "reversed_at", "reversed_by", "reversal_reason"])
+    payment.obligation.refresh_from_db()
+    return payment

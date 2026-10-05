@@ -42,3 +42,11 @@ class ReceiptFSM(StatesGroup):
     packs = State()        # сколько фасовок пришло
     cost = State()         # себестоимость за штуку
     confirm = State()
+
+
+class RepayFSM(StatesGroup):
+    """Погашение НАШИХ долгов: кредиты и долг Ашимжану."""
+
+    choose = State()       # какой долг гасим
+    amount = State()       # сумма (для долга в валюте — в долларах)
+    comment = State()      # комментарий, для Ашимжана обязателен

@@ -9,6 +9,8 @@ from decimal import Decimal
 from django.db import models
 from django.utils import timezone
 
+from apps.core.models import ReversibleDocument
+
 
 class CashFlow(models.Model):
     class Direction(models.TextChoices):
@@ -27,6 +29,10 @@ class CashFlow(models.Model):
         RENT = "rent", "Аренда"
         SALARY = "salary", "Зарплата"
         PERSONAL = "personal", "Личные расходы (Атай)"
+        # Погашение кредита/долга — НЕ расход бизнеса: деньги уходят, но
+        # это уменьшение обязательства, а не издержка. Прибыль не трогает
+        # (см. analytics.services.operating_expenses).
+        LOAN_PAYMENT = "loan_payment", "Погашение кредита / долга"
         OTHER_OUT = "other_out", "Прочий расход"
 
     direction = models.CharField("Тип", max_length=8, choices=Direction.choices)
@@ -73,3 +79,117 @@ class CashFlow(models.Model):
     @property
     def signed_amount(self) -> Decimal:
         return self.amount if self.direction == self.Direction.IN else -self.amount
+
+
+class Obligation(models.Model):
+    """Наш долг: кредит или заём у человека.
+
+    Отличается от `debts.Debt` направлением: там нам должны клиенты, здесь
+    должны МЫ. Погашение уменьшает кассу, но НЕ прибыль — это не расход,
+    а уменьшение обязательства.
+
+    Остаток не хранится числом, а считается как начальная сумма минус
+    платежи — тот же принцип, что у кассы и склада.
+    """
+
+    class Currency(models.TextChoices):
+        KGS = "KGS", "сом"
+        USD = "USD", "доллар"
+
+    name = models.CharField("Название", max_length=120)
+    code = models.SlugField(
+        "Код", max_length=32, unique=True,
+        help_text="Служебный идентификатор для кнопок бота. Менять не нужно.",
+    )
+    currency = models.CharField(
+        "Валюта", max_length=3, choices=Currency.choices, default=Currency.KGS
+    )
+    rate = models.DecimalField(
+        "Курс к сому", max_digits=10, decimal_places=2, default=1,
+        help_text="Для долга в долларах. Заказчик просил фиксированный курс.",
+    )
+    opening_amount = models.DecimalField(
+        "Начальный остаток", max_digits=14, decimal_places=2,
+        help_text="В валюте обязательства. От него вычитаются платежи.",
+    )
+    default_payment = models.DecimalField(
+        "Платёж по умолчанию", max_digits=14, decimal_places=2, null=True, blank=True,
+        help_text="Если задан, бот гасит эту сумму одним нажатием, без вопросов.",
+    )
+    is_active = models.BooleanField("Активно", default=True)
+    created_at = models.DateTimeField("Создано", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Наш долг / кредит"
+        verbose_name_plural = "Наши долги и кредиты"
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.name}: осталось {self.remaining}"
+
+    @property
+    def paid(self) -> Decimal:
+        from django.db.models import Sum
+
+        return self.payments.filter(is_reversed=False).aggregate(
+            s=Sum("amount"))["s"] or Decimal("0")
+
+    @property
+    def remaining(self) -> Decimal:
+        """Остаток в валюте обязательства."""
+        return self.opening_amount - self.paid
+
+    @property
+    def remaining_kgs(self) -> Decimal:
+        """Остаток в сомах: для рублёвого долга это он же, для валютного — по курсу."""
+        return self.remaining * self.rate
+
+
+class ObligationPayment(ReversibleDocument):
+    """Платёж по нашему долгу. Уменьшает кассу на сомовый эквивалент."""
+
+    obligation = models.ForeignKey(
+        Obligation, on_delete=models.PROTECT, related_name="payments",
+        verbose_name="Долг / кредит",
+    )
+    amount = models.DecimalField(
+        "Сумма платежа", max_digits=14, decimal_places=2,
+        help_text="В валюте обязательства.",
+    )
+    rate = models.DecimalField(
+        "Курс на момент платежа", max_digits=10, decimal_places=2, default=1,
+        help_text="Снимок: потом курс поменяется, а платёж должен остаться как был.",
+    )
+    comment = models.CharField("Комментарий", max_length=255, blank=True)
+    created_at = models.DateTimeField("Дата", default=timezone.now)
+
+    class Meta:
+        verbose_name = "Платёж по долгу"
+        verbose_name_plural = "Платежи по нашим долгам"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        mark = " (СТОРНО)" if self.is_reversed else ""
+        return f"{self.obligation.name}: −{self.amount}{mark}"
+
+    @property
+    def amount_kgs(self) -> Decimal:
+        return self.amount * self.rate
+
+    def save(self, *args, **kwargs):
+        creating = self.pk is None
+        if creating and not self.rate:
+            self.rate = self.obligation.rate
+        super().save(*args, **kwargs)
+        # Единая точка: любой новый платёж сразу уходит расходом из кассы.
+        if creating:
+            from apps.finance.services import record_cash_flow
+
+            record_cash_flow(
+                CashFlow.Direction.OUT,
+                CashFlow.Category.LOAN_PAYMENT,
+                self.amount_kgs,
+                date=timezone.localdate(self.created_at),
+                comment=self.comment or f"Погашение: {self.obligation.name}",
+                subcategory=self.obligation.name[:64],
+            )

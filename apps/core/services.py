@@ -72,6 +72,19 @@ def recent_operations(limit=8) -> list[dict]:
             "detail": f"{packs} {pack_label(b.product.pack_name, packs)}",
         })
 
+    from apps.finance.models import ObligationPayment
+
+    for p in (ObligationPayment.objects
+              .filter(is_reversed=False)
+              .select_related("obligation")
+              .order_by("-created_at")[:limit]):
+        cur = "$" if p.obligation.currency == "USD" else "сом"
+        ops.append({
+            "kind": "obligation", "id": p.pk, "dt": p.created_at,
+            "icon": "🏦", "title": f"Погашение · {p.obligation.name}",
+            "detail": f"{money(p.amount)} {cur}",
+        })
+
     payments = (
         DebtPayment.objects.filter(is_reversed=False, debt__is_reversed=False)
         .select_related("debt__client")
