@@ -1,7 +1,12 @@
 """Напоминания о платежах по нашим кредитам. Запускается ежедневно из cron.
 
-    manage.py send_reminders            # отправить, если есть что напомнить
-    manage.py send_reminders --dry-run  # показать текст, не отправляя
+    manage.py send_reminders                     # отправить, если есть что
+    manage.py send_reminders --dry-run           # показать текст, не отправляя
+    manage.py send_reminders --dry-run --date 2026-10-26   # проверить на дату
+
+Ключ --date нужен, чтобы убедиться, что напоминание настроено верно, не
+дожидаясь самой даты платежа: подставляете день, когда оно должно прийти,
+и смотрите текст.
 
 Напоминаем ЗАРАНЕЕ (по умолчанию за 2 дня), чтобы было время подготовить
 деньги. Если у обязательства не задан день платежа — оно пропускается.
@@ -46,15 +51,20 @@ def build_reminders(today=None):
         if days_left > o.remind_days_before:
             continue
         when = {0: "СЕГОДНЯ", 1: "завтра"}.get(days_left, f"через {days_left} дн.")
+        # Валюта берётся из обязательства: долг Ашимжану в долларах, и
+        # показать его в сомах значило бы соврать в 87 раз.
+        cur = "$" if o.currency == "USD" else "сом"
         payment = o.default_payment or 0
         text = (
-            f"⏰ <b>Платёж по кредиту — {when}</b>\n\n"
-            f"{o.name}\n"
+            f"⏰ <b>Платёж — {when}</b>\n\n"
+            f"<b>{o.name}</b>\n"
             f"Дата платежа: {due:%d.%m.%Y}\n"
         )
         if payment:
-            text += f"Сумма платежа: <b>{money(payment)} сом</b>\n"
-        text += f"Остаток долга: {money(o.remaining)} сом"
+            text += f"Сумма платежа: <b>{money(payment)} {cur}</b>\n"
+        text += f"Остаток долга: {money(o.remaining)} {cur}"
+        if o.currency != "KGS":
+            text += f" ({money(o.remaining_kgs)} сом)"
         out.append(text)
     return out
 
@@ -65,13 +75,29 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--dry-run", action="store_true",
                             help="показать текст, не отправляя")
+        parser.add_argument("--date",
+                            help="считать, что сегодня эта дата (ГГГГ-ММ-ДД) — "
+                                 "для проверки до наступления срока")
 
     def handle(self, *args, **options):
+        from datetime import datetime
+
         from apps.core.notifications import broadcast
 
-        texts = build_reminders()
+        today = None
+        if options.get("date"):
+            try:
+                today = datetime.strptime(options["date"], "%Y-%m-%d").date()
+            except ValueError:
+                self.stderr.write("Дата в формате ГГГГ-ММ-ДД, напр. 2026-10-26")
+                return
+            self.stdout.write(self.style.MIGRATE_HEADING(f"Считаем, что сегодня {today}\n"))
+
+        texts = build_reminders(today)
         if not texts:
-            self.stdout.write("Напоминать нечего.")
+            self.stdout.write(
+                "Напоминать нечего — ближайшие платежи ещё не скоро.\n"
+                "Проверить заранее: --dry-run --date ГГГГ-ММ-ДД")
             return
         for t in texts:
             if options["dry_run"]:
