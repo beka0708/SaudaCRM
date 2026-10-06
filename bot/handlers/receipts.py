@@ -59,10 +59,14 @@ def _finalize_receipt(data):
 
 def _products_kb(products):
     # В два столбца — товаров много, одним списком занимают весь экран.
-    # Кнопка «Новый товар» отдельной строкой внизу, чтобы не нажать случайно.
+    # Внизу два действия: завести новый товар и записать долг Ашимжану —
+    # товар часто и приходит в долг, так что обе кнопки нужны тут же.
     return pairs_kb(
         products, "rcpt_prod",
-        extra=[InlineKeyboardButton(text="➕ Новый товар", callback_data="rcpt_prod:new")],
+        extra=[
+            InlineKeyboardButton(text="➕ Новый товар", callback_data="rcpt_prod:new"),
+            InlineKeyboardButton(text="🏦 Долг Ашимжану", callback_data="rcpt_prod:debt"),
+        ],
     )
 
 
@@ -90,6 +94,14 @@ async def receipt_start(message: Message, state: FSMContext):
         "Что приходуем? Выберите товар или добавьте новый:",
         reply_markup=_products_kb(products),
     )
+
+
+@router.callback_query(ReceiptFSM.product, F.data == "rcpt_prod:debt")
+async def receipt_to_debt(cb: CallbackQuery, state: FSMContext):
+    """Из прихода — сразу в «занять ещё у Ашимжана»: товар часто берут в долг."""
+    from bot.handlers.repayments import charge_entry
+
+    await charge_entry(cb, state, code="ashimzhan")
 
 
 @router.callback_query(ReceiptFSM.product, F.data == "rcpt_prod:new")

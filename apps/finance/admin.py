@@ -54,7 +54,8 @@ class ObligationAdmin(ModelAdmin):
     """Наши долги: кредиты и заёмы. Остаток считается из платежей."""
 
     list_display = ("name", "currency", "remaining_display", "remaining_kgs_display",
-                    "default_payment", "is_active")
+                    "default_payment", "payment_day", "is_active")
+    list_editable = ("payment_day",)
     list_filter = ("currency", "is_active")
     inlines = [ObligationPaymentInline]
     readonly_fields = ("created_at",)

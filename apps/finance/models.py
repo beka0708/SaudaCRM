@@ -116,6 +116,15 @@ class Obligation(models.Model):
         "Платёж по умолчанию", max_digits=14, decimal_places=2, null=True, blank=True,
         help_text="Если задан, бот гасит эту сумму одним нажатием, без вопросов.",
     )
+    payment_day = models.PositiveSmallIntegerField(
+        "День платежа", null=True, blank=True,
+        help_text="Число месяца, когда вносится платёж (1–28). Если задано, "
+        "бот напомнит заранее. Пусто — напоминаний не будет.",
+    )
+    remind_days_before = models.PositiveSmallIntegerField(
+        "Напомнить за, дней", default=2,
+        help_text="За сколько дней до платежа слать напоминание.",
+    )
     allow_charge = models.BooleanField(
         "Можно занимать ещё", default=False,
         help_text="У банковского кредита сумма фиксирована, а личный заём "

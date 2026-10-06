@@ -192,17 +192,32 @@ async def repay_pick(cb: CallbackQuery, state: FSMContext, employee):
     await cb.answer()
 
 
-@router.callback_query(RepayFSM.choose, F.data.startswith("charge:"))
-async def charge_pick(cb: CallbackQuery, state: FSMContext):
-    info = await _info(int(cb.data.split(":")[1]))
+@sync_to_async
+def _info_by_code(code):
+    from apps.finance.models import Obligation
+
+    o = Obligation.objects.filter(code=code, is_active=True).first()
+    if not o:
+        return None
+    return {
+        "id": o.id, "name": o.name, "currency": o.currency, "rate": o.rate,
+        "remaining": o.remaining, "remaining_kgs": o.remaining_kgs,
+        "default_payment": o.default_payment, "allow_charge": o.allow_charge,
+    }
+
+
+async def charge_entry(cb, state, info=None, code=None):
+    """Начать «занять ещё». Зовётся и из «Погашения», и из «Прихода»."""
+    if info is None:
+        info = await _info_by_code(code)
     if not info:
         await state.clear()
         await cb.message.edit_text("Долг не найден.")
         await cb.answer()
         return
+    await state.set_state(RepayFSM.amount)
     await state.update_data(oid=info["id"], currency=info["currency"],
                             rate=str(info["rate"]), name=info["name"], mode="charge")
-    await state.set_state(RepayFSM.amount)
     unit = "долларах" if info["currency"] == "USD" else "сомах"
     await cb.message.edit_text(
         f"➕ <b>{info['name']}</b> — новый заём\n"
@@ -211,6 +226,12 @@ async def charge_pick(cb: CallbackQuery, state: FSMContext):
         f"Сколько заняли (в {unit})?"
     )
     await cb.answer()
+
+
+@router.callback_query(RepayFSM.choose, F.data.startswith("charge:"))
+async def charge_pick(cb: CallbackQuery, state: FSMContext):
+    info = await _info(int(cb.data.split(":")[1]))
+    await charge_entry(cb, state, info=info)
 
 
 @router.message(RepayFSM.amount)

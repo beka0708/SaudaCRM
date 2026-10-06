@@ -21,15 +21,16 @@ CB_OTHER = "other"
 
 
 def main_menu() -> ReplyKeyboardMarkup:
-    # Четыре ежедневных сценария сверху. Личный расход отделён от расхода
-    # компании: он не входит в расходы бизнеса и не уменьшает прибыль,
-    # поэтому и кнопка отдельная, чтобы не путать при вводе.
+    # Личный расход отделён от расхода компании: он не входит в расходы
+    # бизнеса и не уменьшает прибыль, поэтому и кнопка отдельная.
+    # «Отменить» — в самом конце: ею пользуются редко, и случайно нажать
+    # её не должно быть легко.
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=BTN_SALE), KeyboardButton(text=BTN_RECEIPT)],
             [KeyboardButton(text=BTN_DEBT), KeyboardButton(text=BTN_EXPENSE)],
-            [KeyboardButton(text=BTN_PERSONAL), KeyboardButton(text=BTN_UNDO)],
-            [KeyboardButton(text=BTN_LIST), KeyboardButton(text=BTN_REPAY)],
+            [KeyboardButton(text=BTN_PERSONAL), KeyboardButton(text=BTN_REPAY)],
+            [KeyboardButton(text=BTN_LIST), KeyboardButton(text=BTN_UNDO)],
         ],
         resize_keyboard=True,
     )

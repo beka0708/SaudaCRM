@@ -11,7 +11,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from asgiref.sync import sync_to_async
 
-from bot.keyboards import BTN_LIST, main_menu
+from bot.keyboards import BTN_LIST
 
 router = Router()
 
@@ -78,8 +78,9 @@ async def list_show(cb: CallbackQuery):
     kind = cb.data.split(":")[1]
     text = await (_stock() if kind == "stock" else _debtors())
     parts = _chunks(text)
+    # Отдельное «Меню:» не шлём: reply-клавиатура и так остаётся на экране,
+    # а лишнее сообщение только засоряет переписку.
     await cb.message.edit_text(parts[0])
     for extra in parts[1:]:
         await cb.message.answer(extra)
-    await cb.message.answer("Меню:", reply_markup=main_menu())
     await cb.answer()

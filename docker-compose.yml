@@ -74,6 +74,11 @@ services:
   cron:
     <<: *app
     command: ["cron"]
+    volumes:
+      - media:/app/media
+      - ./import:/import:ro
+      # Только чтение: cron отправляет готовый бэкап, а делает его сервис backup.
+      - ./backups:/backups:ro
 
   backup:
     image: postgres:18-alpine
