@@ -143,12 +143,10 @@ async def repay_start(message: Message, state: FSMContext):
         else:
             lines.append(f"{o['name']} — <b>{money(o['remaining'])} сом</b>")
         # В подписи кнопки — только название: суммы уже перечислены выше.
+        # Только погашение: «занять ещё» живёт в сценарии «Приход» —
+        # товар обычно и приходит в долг, там кнопка на месте.
         rows.append([InlineKeyboardButton(
             text=o["name"], callback_data=f"repay:{o['id']}")])
-        if o["allow_charge"]:
-            rows.append([InlineKeyboardButton(
-                text=f"➕ Занять ещё — {o['name']}",
-                callback_data=f"charge:{o['id']}")])
 
     lines.append("\nЧто гасим?")
     await state.set_state(RepayFSM.choose)
@@ -226,12 +224,6 @@ async def charge_entry(cb, state, info=None, code=None):
         f"Сколько заняли (в {unit})?"
     )
     await cb.answer()
-
-
-@router.callback_query(RepayFSM.choose, F.data.startswith("charge:"))
-async def charge_pick(cb: CallbackQuery, state: FSMContext):
-    info = await _info(int(cb.data.split(":")[1]))
-    await charge_entry(cb, state, info=info)
 
 
 @router.message(RepayFSM.amount)
