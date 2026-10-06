@@ -193,6 +193,14 @@ UNFOLD = {
                 ],
             },
             {
+                # Здесь должны МЫ — в отличие от «Реализации», где должны нам.
+                "title": "Наши долги",
+                "items": [
+                    {"title": "Кредиты и займы", "icon": "credit_card", "link": reverse_lazy("admin:finance_obligation_changelist")},
+                    {"title": "Движения по долгам", "icon": "sync_alt", "link": reverse_lazy("admin:finance_obligationpayment_changelist")},
+                ],
+            },
+            {
                 "title": "Система",
                 "items": [
                     {"title": "Пользователи", "icon": "person", "link": reverse_lazy("admin:users_user_changelist")},
