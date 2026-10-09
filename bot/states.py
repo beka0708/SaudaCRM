@@ -5,8 +5,7 @@ from aiogram.fsm.state import State, StatesGroup
 class ExpenseFSM(StatesGroup):
     category = State()
     custom_category = State()   # «свой вариант» — статья вводится текстом
-    amount = State()
-    comment = State()
+    amount = State()            # после суммы расход сразу записывается
 
 
 class SaleFSM(StatesGroup):

@@ -167,6 +167,61 @@ def add_expense(category, amount, date=None, comment="", subcategory=""):
     )
 
 
+# --- Постоянные расходы ---
+
+def due_recurring(today=None):
+    """Шаблоны постоянных расходов, которые пора провести сегодня.
+
+    Пропускаем уже проведённые в этом месяце — планировщик может отработать
+    дважды (перезапуск контейнера), и расход не должен задвоиться.
+
+    Опоздание тоже ловим: если в день проведения сервер лежал, проверка
+    `today.day >= due` проведёт расход при первом же следующем запуске, а не
+    отложит его на месяц.
+    """
+    from .models import RecurringExpense
+
+    today = today or timezone.localdate()
+    out = []
+    for r in RecurringExpense.objects.filter(is_active=True):
+        if today.day < r.due_day(today.year, today.month):
+            continue
+        if r.posted_in(today.year, today.month):
+            continue
+        out.append(r)
+    return out
+
+
+@transaction.atomic
+def post_recurring(items, today=None):
+    """Записать постоянные расходы в кассу. Возвращает созданные CashFlow."""
+    from .models import RecurringExpense
+
+    today = today or timezone.localdate()
+    created = []
+    # Блокируем шаблоны на время проведения: два одновременных запуска
+    # (ручной и по расписанию) иначе оба пройдут проверку «ещё не проводили».
+    locked = RecurringExpense.objects.select_for_update().filter(
+        pk__in=[r.pk for r in items]
+    )
+    for r in locked:
+        if r.posted_in(today.year, today.month):
+            continue
+        flow = record_cash_flow(
+            CashFlow.Direction.OUT,
+            r.category,
+            r.amount,
+            date=today,
+            comment=r.comment or r.name,
+            subcategory=r.name[:64],
+        )
+        if flow:
+            flow.recurring = r
+            flow.save(update_fields=["recurring"])
+            created.append(flow)
+    return created
+
+
 @transaction.atomic
 def reverse_obligation_payment(payment_id, user=None, reason=""):
     """Сторно движения по нашему долгу.

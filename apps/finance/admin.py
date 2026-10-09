@@ -5,7 +5,30 @@ from unfold.admin import ModelAdmin, TabularInline
 
 from apps.core.admin import LedgerDocumentMixin
 
-from .models import CashFlow, Obligation, ObligationPayment
+from .models import CashFlow, Obligation, ObligationPayment, RecurringExpense
+
+
+@admin.register(RecurringExpense)
+class RecurringExpenseAdmin(ModelAdmin):
+    """Шаблоны ежемесячных расходов. Проводит их команда post_recurring из cron.
+
+    Удалять можно: это настройка, а не документ. Уже проведённые расходы
+    останутся в кассе — у CashFlow.recurring стоит SET_NULL.
+    """
+
+    list_display = ("name", "amount", "category", "day_display", "is_active", "last_posted")
+    list_editable = ("amount", "is_active")
+    list_filter = ("is_active", "category")
+    readonly_fields = ("created_at",)
+
+    @admin.display(description="День проведения")
+    def day_display(self, obj):
+        return obj.day or "последний день месяца"
+
+    @admin.display(description="Последний раз проведён")
+    def last_posted(self, obj):
+        flow = obj.postings.order_by("-date").first()
+        return flow.date.strftime("%d.%m.%Y") if flow else "—"
 
 
 @admin.register(CashFlow)

@@ -64,6 +64,18 @@ class CashFlow(models.Model):
         verbose_name="Оплата долга-источник",
     )
 
+    # Если расход создан автоматически по шаблону постоянного расхода —
+    # ссылка на шаблон. По ней проверяем, что за месяц уже провели, и не
+    # записываем дважды, если планировщик отработает повторно.
+    recurring = models.ForeignKey(
+        "finance.RecurringExpense",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="postings",
+        verbose_name="Постоянный расход-источник",
+    )
+
     created_at = models.DateTimeField("Создано", auto_now_add=True)
 
     class Meta:
@@ -79,6 +91,64 @@ class CashFlow(models.Model):
     @property
     def signed_amount(self) -> Decimal:
         return self.amount if self.direction == self.Direction.IN else -self.amount
+
+
+class RecurringExpense(models.Model):
+    """Постоянный расход: бухуслуги, страховка, зарплата — одна сумма каждый месяц.
+
+    Вводить их руками в боте каждый месяц — лишняя работа и риск забыть, а
+    забытая зарплата сразу завышает прибыль. Поэтому шаблон, а планировщик
+    в нужный день месяца сам пишет расход в кассу и шлёт уведомление.
+
+    Шаблон — не документ: его можно править и выключать. Документом остаётся
+    созданный по нему CashFlow, он ссылается сюда через `recurring`. Правка
+    суммы задним числом ничего не переписывает: прошлые месяцы остаются как
+    были, новая сумма начнёт действовать со следующего проведения.
+    """
+
+    name = models.CharField("Название", max_length=120)
+    category = models.CharField(
+        "Категория", max_length=20, choices=CashFlow.Category.choices,
+        default=CashFlow.Category.OTHER_OUT,
+        help_text="По ней считается прибыль. Зарплата — «Зарплата», "
+                  "бухуслуги и страховка — «Прочий расход».",
+    )
+    amount = models.DecimalField("Сумма в месяц, сом", max_digits=14, decimal_places=2)
+    day = models.PositiveSmallIntegerField(
+        "День проведения", null=True, blank=True,
+        help_text="Число месяца, когда расход записывается. "
+                  "Пусто — последний день месяца.",
+    )
+    comment = models.CharField("Комментарий", max_length=255, blank=True)
+    is_active = models.BooleanField(
+        "Активен", default=True,
+        help_text="Выключите, вместо того чтобы удалять: проведённые расходы "
+                  "за прошлые месяцы останутся на месте.",
+    )
+    created_at = models.DateTimeField("Создано", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Постоянный расход"
+        verbose_name_plural = "Постоянные расходы"
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.name}: {self.amount} сом/мес"
+
+    def due_day(self, year, month) -> int:
+        """День проведения в конкретном месяце.
+
+        Пустое поле или 31-е в феврале — берём последний день месяца, иначе
+        расход за короткий месяц не проведётся вообще.
+        """
+        import calendar
+
+        last = calendar.monthrange(year, month)[1]
+        return last if not self.day else min(self.day, last)
+
+    def posted_in(self, year, month) -> bool:
+        """Уже проводили за этот месяц? Защита от повторного запуска."""
+        return self.postings.filter(date__year=year, date__month=month).exists()
 
 
 class Obligation(models.Model):

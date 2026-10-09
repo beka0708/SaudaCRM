@@ -190,6 +190,7 @@ UNFOLD = {
                     {"title": "Реализация (долги)", "icon": "account_balance_wallet", "link": reverse_lazy("admin:debts_debt_changelist")},
                     {"title": "Оплаты долгов", "icon": "payments", "link": reverse_lazy("admin:debts_debtpayment_changelist")},
                     {"title": "Касса", "icon": "account_balance", "link": reverse_lazy("admin:finance_cashflow_changelist")},
+                    {"title": "Постоянные расходы", "icon": "event_repeat", "link": reverse_lazy("admin:finance_recurringexpense_changelist")},
                 ],
             },
             {
