@@ -145,8 +145,21 @@ def debtor_rows():
 
 
 def summary_rows(start, end):
+    """Лист «Сводка».
+
+    Прибыль здесь — по начислению (выручка − себестоимость проданного −
+    расходы бизнеса), как и на дашборде: в проекте одно определение прибыли
+    (см. analytics.services.month_indicators). Рядом печатаем слагаемые,
+    чтобы цифру можно было проверить, не заглядывая в код.
+
+    Закупка товара и погашение кредитов в «Расходы бизнеса» не входят:
+    первая попадёт в отчёт себестоимостью в момент продажи, второе —
+    уменьшение долга, а не издержка. Личные траты владельца — изъятие,
+    они уменьшают кассу, но не заработок.
+    """
+    from apps.analytics.services import month_indicators
     from apps.debts.models import DebtPayment
-    from apps.finance.services import get_cash_balance, profit, total_expense
+    from apps.finance.services import get_cash_balance, total_expense
     from apps.sales.models import Sale
 
     sales_cash = Sale.objects.active().filter(
@@ -161,16 +174,20 @@ def summary_rows(start, end):
         created_at__date__gte=start, created_at__date__lte=end,
         is_reversed=False, debt__is_reversed=False,
     ).aggregate(s=Sum("amount"))["s"] or Decimal("0")
-    expenses = total_expense(start, end)
-    prof = profit(start, end)
+    ind = month_indicators(start, end)
 
     return [
         ["Продажи — наличные", _num(sales_cash)],
         ["Продажи — реализация", _num(sales_debt)],
         ["Итого продаж", _num(sales_cash + sales_debt)],
         ["Оплаты долгов (приход)", _num(payments)],
-        ["Расходы", _num(expenses)],
-        ["Прибыль (приход − расход)", _num(prof)],
+        ["", None],
+        ["Выручка", _num(ind["revenue"])],
+        ["Себестоимость проданного", _num(ind["cogs"])],
+        ["Расходы бизнеса", _num(ind["expenses"])],
+        ["ПРИБЫЛЬ (выручка − себестоимость − расходы)", _num(ind["profit"])],
+        ["", None],
+        ["Все расходы деньгами (с закупкой и личными)", _num(total_expense(start, end))],
         ["Касса на текущий момент", _num(get_cash_balance())],
     ]
 

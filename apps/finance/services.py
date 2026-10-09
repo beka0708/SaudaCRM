@@ -128,8 +128,14 @@ def total_expense(start=None, end=None) -> Decimal:
     return s or Decimal("0")
 
 
-def profit(start=None, end=None) -> Decimal:
-    """Прибыль за период = приходы − расходы (кассовый метод, как в ТЗ 3.7)."""
+def cash_movement(start=None, end=None) -> Decimal:
+    """Изменение кассы за период = приходы − расходы. Это НЕ прибыль.
+
+    Закупка тут расход сразу, в день закупки, поэтому в месяц крупного
+    завоза число проваливается в минус, а в следующий взлетает — к тому,
+    сколько заработали на товаре, оно отношения не имеет. Прибыль считает
+    analytics.services.month_indicators, и она одна на весь проект.
+    """
     return total_income(start, end) - total_expense(start, end)
 
 

@@ -12,7 +12,7 @@ from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
 from apps.catalog.services import fmt_qty
-from apps.finance.services import get_cash_balance, profit
+from apps.finance.services import get_cash_balance
 
 from . import services as s
 
@@ -44,8 +44,11 @@ def dashboard_callback(request, context):
     wh = s.warehouse_value()
     s_today = s.sales_today()
     s_yesterday = s.sales_yesterday()
-    profit_30 = profit(cur_start, t)
-    profit_prev = profit(prev_start, prev_end)
+    # Прибыль по начислению: выручка − себестоимость проданного − расходы.
+    # Кассовую (приход − расход) не показываем: закупка в долг роняла её
+    # в минус на сотни тысяч, хотя торговля шла в плюс. См. month_indicators.
+    profit_30 = s.month_indicators(cur_start, t)["profit"]
+    profit_prev = s.month_indicators(prev_start, prev_end)["profit"]
     debt = s.total_debt()
     _, debtors_count = s.top_debtors()
     low = s.low_stock_products()
@@ -62,8 +65,10 @@ def dashboard_callback(request, context):
          "unit": "сом", "sub": "за сегодня", "value_class": "sd-slate", "icon_color": "sd-icon-indigo",
          "href": "/admin/sales/sale/", "trend": _trend(s_today, s_yesterday)},
         {"icon": "trending_up", "label": "Прибыль за 30 дней", "value": s.money(profit_30), "target": int(profit_30),
-         "unit": "сом", "sub": "за 30 дней", "value_class": "sd-slate", "icon_color": "sd-icon-emerald",
-         "href": "/admin/finance/cashflow/", "trend": _trend(profit_30, profit_prev)},
+         "unit": "сом", "sub": "выручка − себестоимость − расходы", "value_class": "sd-slate",
+         "icon_color": "sd-icon-emerald",
+         # Ведём в аналитику, а не в кассу: прибыль считается не из неё.
+         "href": "/admin/analytics/", "trend": _trend(profit_30, profit_prev)},
         {"icon": "inventory_2", "label": "Стоимость склада", "value": s.money(wh["value"]), "target": int(wh["value"]),
          "unit": "сом", "sub": f"{wh['units']} фасовок на складе", "value_class": "sd-slate",
          "icon_color": "sd-icon-sky6", "href": "/admin/catalog/product/"},

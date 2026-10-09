@@ -74,12 +74,16 @@ def _block_revenue(day) -> str:
     head = f"💵 <b>SaudaCRM — выручка за {_date_label(day)}</b>"
     if not revenue:
         return f"{head}\n\nПродаж не было."
-    profit = revenue - cogs
+    # Не «прибыль»: расходы дня тут не вычтены, а прибылью в проекте
+    # называется только выручка − себестоимость − расходы (month_indicators).
+    # Два разных числа под одним словом — ровно та путаница, из-за которой
+    # у заказчика не сходился учёт.
+    earned = revenue - cogs
     return (
         f"{head}\n\n"
         f"Продажи: {A.money(revenue)} сом\n"
         f"Себестоимость: {A.money(cogs)} сом\n"
-        f"Прибыль: <b>{A.money(profit)} сом</b>{_pct(profit, revenue)}"
+        f"Заработок на товаре: <b>{A.money(earned)} сом</b>{_pct(earned, revenue)}"
     )
 
 
