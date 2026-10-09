@@ -38,6 +38,15 @@ def _items(personal):
 
 @sync_to_async
 def _save(item, amount, personal):
+    """Записать расход. Возвращает (подпись итога, сумма) для ответа боту.
+
+    У личных трат показываем не кассу, а сколько уже потрачено на себя
+    в этом месяце: для владельца это и есть смысл кнопки — следить за
+    своим лимитом. Касса от личных расходов всё равно отличается на
+    порядок и в этом месте ни о чём не говорит.
+    """
+    from apps.analytics.services import expenses_by_category, month_start, today
+    from apps.finance.models import CashFlow
     from apps.finance.services import add_expense, expense_category_for, get_cash_balance
 
     add_expense(
@@ -48,7 +57,10 @@ def _save(item, amount, personal):
         comment="" if personal else item,
         subcategory=item,
     )
-    return get_cash_balance()
+    if personal:
+        spent = expenses_by_category(CashFlow.Category.PERSONAL, month_start(), today())
+        return f"🧍 Личные расходы за {today():%m.%Y}", spent
+    return "💰 Касса", get_cash_balance()
 
 
 async def _ask_category(message, state, personal):
@@ -122,12 +134,12 @@ async def expense_amount(message: Message, state: FSMContext):
 
 async def _finish(message, state, data):
     """Записать расход и показать итог. Общая концовка обоих сценариев."""
-    balance = await _save(data["item"], data["amount"], data["personal"])
+    label, total = await _save(data["item"], data["amount"], data["personal"])
     await state.clear()
     kind = "Личный расход" if data["personal"] else "Расход компании"
     await message.answer(
         f"✅ {kind} записан\n\n"
         f"{data['item']}: <b>{money(data['amount'])} сом</b>\n"
-        f"💰 Касса: <b>{money(balance)} сом</b>",
+        f"{label}: <b>{money(total)} сом</b>",
         reply_markup=main_menu(),
     )
